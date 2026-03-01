@@ -206,6 +206,20 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_intent",
+            "description": "分析用户指令的意图，返回结构化数据供后续执行",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "用户的原始指令"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "explore_terrain",
             "description": "探索指定坐标周围3x3区域的地形，由AI决定每个坐标的地形类型",
             "parameters": {
@@ -239,18 +253,30 @@ class ToolExecutor:
             "add_type_skill": self._add_type_skill,
             "find_entity_by_name": self._find_entity_by_name,
             "entity_ask": self._entity_ask,
-            "explore_terrain": self._explore_terrain
+            "explore_terrain": self._explore_terrain,
+            "analyze_intent": self._analyze_intent
         }
     
-    def execute(self, tool_name: str, arguments: Dict) -> Dict:
+    def execute(self, tool_name: str, arguments: Dict, max_retries: int = 2) -> Dict:
         if tool_name not in self.tools:
             return {"success": False, "error": f"未知工具: {tool_name}"}
         
-        try:
-            result = self.tools[tool_name](arguments)
-            return {"success": True, "result": result}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                result = self.tools[tool_name](arguments)
+                if isinstance(result, dict) and "error" in result:
+                    if attempt < max_retries:
+                        last_error = result.get("error")
+                        continue
+                    return {"success": False, "error": result.get("error")}
+                return {"success": True, "result": result}
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries:
+                    continue
+        
+        return {"success": False, "error": f"重试{max_retries}次后仍失败: {last_error}"}
     
     def _create_entity(self, args: Dict) -> Dict:
         entity = self.world.create_entity(
@@ -415,3 +441,70 @@ class ToolExecutor:
             
         except Exception as e:
             return {"success": False, "error": str(e), "raw_response": response}
+    
+    def _analyze_intent(self, args: Dict) -> Dict:
+        """
+        分析用户指令意图，返回结构化数据
+        返回格式：
+        {
+            "action": "create_entity" | "move_entity" | "set_behavior" | "delete_entity" | "add_rule" | "none",
+            "entity_type": "creature" | "plant" | ...,
+            "entity_name": "xxx",
+            "x": 0, "y": 0,
+            "behavior": "向四周探索",
+            "description": "xxx",
+            "reason": "为什么做这个决定"
+        }
+        """
+        command = args.get("command", "")
+        
+        prompt = f"""你是一个指令分析器。请分析以下用户指令，返回结构化数据。
+
+用户指令：{command}
+
+请返回JSON格式的分析结果：
+{{
+    "action": "操作类型(create_entity/move_entity/set_behavior/delete_entity/add_rule/none)",
+    "entity_type": "实体类型(creature/plant/building/resource/water/fire/land)",
+    "entity_name": "实体名称(如果适用)",
+    "x": 数字坐标X(如果适用),
+    "y": 数字坐标Y(如果适用),
+    "behavior": "行为描述(如果适用)",
+    "description": "描述(如果适用)",
+    "reason": "你为什么做这个分析"
+}}
+
+规则：
+- 只返回JSON，不要其他文字
+- 如果指令不明确需要创建实体，action设为"create_entity"
+- 坐标默认为0,0
+- entity_type根据名称推断：
+  - 人/男/女/小明/小红/动物 → creature
+  - 树/草/花/森林 → plant
+  - 房/屋/村庄/城市 → building
+  - 水/河/湖/海 → water
+  - 矿/金/银/铁/石 → resource
+  - 火 → fire
+  - 地/陆地 → land
+
+只返回JSON！"""
+
+        messages = [{"role": "user", "content": prompt}]
+        
+        try:
+            response = self.llm.chat(messages)
+            if "error" in response:
+                return {"error": response["error"]}
+            
+            content = response.get("message", {}).get("content", "")
+            
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                result = json.loads(json_match.group())
+                return {"result": result}
+            else:
+                return {"result": {"error": "无法解析JSON", "raw": content}}
+                
+        except Exception as e:
+            return {"result": {"error": str(e)}}

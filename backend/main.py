@@ -6,12 +6,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from typing import Dict, Set
-import threading
 
 from .llm_adapter import LLMAdapter
 from .world_manager import WorldManager
 from .agent import Agent
 from .memory import Memory
+from .transcript import Transcript
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -37,7 +37,8 @@ if config_file.exists():
 llm = LLMAdapter(config)
 world = WorldManager(config)
 memory = Memory(config["data_dir"])
-agent = Agent(llm, world, memory)
+transcript = Transcript(config["data_dir"])
+agent = Agent(llm, world, memory, transcript)
 
 app = FastAPI(title="AI World Builder")
 
