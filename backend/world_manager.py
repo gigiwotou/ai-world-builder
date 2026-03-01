@@ -72,7 +72,13 @@ class WorldManager:
         for entity in self.entities.values():
             self.entity_manager.save_entity(entity)
     
-    def create_entity(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties) -> Optional[Entity]:
+    def create_entity(self, entity_type: str, x, y, name: str = "", description: str = "", **properties) -> Optional[Entity]:
+        try:
+            x = int(x)
+            y = int(y)
+        except:
+            return None
+        
         if x is None or y is None:
             return None
         

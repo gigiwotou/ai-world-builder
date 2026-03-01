@@ -245,6 +245,8 @@ class ToolExecutor:
             description=args.get("description", ""),
             **(args.get("properties", {}))
         )
+        if entity is None:
+            return {"success": False, "error": "创建失败：位置被占用或坐标无效"}
         return entity.to_dict()
     
     def _update_entity(self, args: Dict) -> Dict:
