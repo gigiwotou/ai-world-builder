@@ -127,12 +127,14 @@ class WorldManager:
     def execute_behaviors(self):
         import random
         
-        for entity in self.entities.values():
+        creatures = [e for e in self.entities.values() if e.type == "creature"]
+        
+        for i, entity in enumerate(creatures):
             behavior = entity.get_active_behavior(self.tick)
             
             if not behavior:
                 continue
-                
+            
             if entity.type == "creature":
                 if behavior == "向四周探索" or behavior == "随机移动":
                     dx = random.choice([-1, 0, 1])
@@ -146,8 +148,13 @@ class WorldManager:
                             
                 elif behavior == "休息" or behavior == "静止":
                     pass
+        
+        self._separate_overlapping_creatures()
                     
-            elif entity.type == "plant":
+        for entity in self.entities.values():
+            behavior = entity.get_active_behavior(self.tick)
+            
+            if entity.type == "plant":
                 if behavior == "生长":
                     pass
                     
@@ -160,6 +167,34 @@ class WorldManager:
                         new_y = entity.y + dy
                         if not any(e.x == new_x and e.y == new_y for e in self.entities.values()):
                             self.create_entity("fire", new_x, new_y, "火")
+    
+    def _separate_overlapping_creatures(self):
+        import random
+        
+        creatures = [e for e in self.entities.values() if e.type == "creature"]
+        
+        for i, entity in enumerate(creatures):
+            for j, other in enumerate(creatures[i+1:], i+1):
+                if entity.x == other.x and entity.y == other.y:
+                    directions = [(-1, 0), (1, 0), (0, -1), (0, 1), 
+                                  (-1, -1), (-1, 1), (1, -1), (1, 1)]
+                    random.shuffle(directions)
+                    
+                    for dx, dy in directions:
+                        new_x1 = max(-1000, min(1000, entity.x + dx))
+                        new_y1 = max(-1000, min(1000, entity.y + dy))
+                        
+                        occupied = False
+                        for e in self.entities.values():
+                            if e.id != entity.id and e.id != other.id:
+                                if e.x == new_x1 and e.y == new_y1:
+                                    occupied = True
+                                    break
+                        
+                        if not occupied:
+                            entity.x = new_x1
+                            entity.y = new_y1
+                            break
     
     def set_entity_behavior(self, entity_id: str, behavior: str) -> bool:
         if entity_id in self.entities:
