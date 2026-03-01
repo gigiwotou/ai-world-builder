@@ -11,6 +11,18 @@ SYSTEM_PROMPT_BASE = """你是一个虚拟世界的管理者AI。你的任务是
 - 世界是无限大的网格坐标系统，可为负数
 - 实体类型：land(陆地), plant(植物), creature(生物), building(建筑), resource(资源), water(水), fire(金)
 
+**实体技能系统**:
+- 当你创建一个实体时，AI会自动分析并赋予其合适的技能
+- creature可选技能: 移动, 觅食, 饮水, 思考, 睡觉, 攻击, 逃跑
+- plant可选技能: 生长, 光合作用, 扎根
+- fire可选技能: 蔓延, 燃烧, 熄灭
+- water可选技能: 流动, 蒸发, 冻结
+
+**具有思考能力的实体**:
+- 如果实体拥有"思考"技能，它可以在tick中向AI提问
+- 使用 entity_ask 工具可以让有思考能力的实体提问
+- 例如："小明问：附近有食物吗？"
+
 **行为系统**:
 1. 设置个体行为：使用 set_entity_behavior 工具
    - 例如："小明向四周探索" → 设置 entity_name="小明", behavior="向四周探索"
@@ -21,7 +33,7 @@ SYSTEM_PROMPT_BASE = """你是一个虚拟世界的管理者AI。你的任务是
    - 临时行为结束后，实体恢复长期行为
    
 3. 设置类型技能：使用 add_type_skill 工具
-   - 例如："人类都可以行走" → 设置 entity_type="creature"(人类), skill="移动"
+   - 例如："人类都可以行走" → 设置 entity_type="creature", skill="移动"
    - 例如："火可以蔓延" → 设置 entity_type="fire", skill="蔓延"
 
 **常用行为**:
@@ -38,7 +50,7 @@ class Agent:
     def __init__(self, llm: LLMAdapter, world: WorldManager, memory: Memory = None):
         self.llm = llm
         self.world = world
-        self.executor = ToolExecutor(world)
+        self.executor = ToolExecutor(world, llm)
         self.memory = memory
         self.conversation_history: List[Dict[str, str]] = []
         
@@ -47,6 +59,49 @@ class Agent:
             context = self.memory.get_context_prompt()
             return f"{SYSTEM_PROMPT_BASE}\n\n---\n\n{context}"
         return SYSTEM_PROMPT_BASE
+    
+    def _analyze_skills(self, entity_type: str, entity_name: str) -> List[str]:
+        skill_options = {
+            "creature": ["移动", "觅食", "饮水", "思考", "睡觉", "攻击", "逃跑"],
+            "plant": ["生长", "光合作用", "扎根"],
+            "fire": ["蔓延", "燃烧", "熄灭"],
+            "water": ["流动", "蒸发", "冻结"],
+            "building": ["存储", "居住", "防御"],
+            "resource": ["开采", "再生"]
+        }
+        
+        available_skills = skill_options.get(entity_type, [])
+        if not available_skills:
+            return []
+        
+        prompt = f"""分析实体应该拥有什么技能。
+实体类型: {entity_type}
+实体名称: {entity_name}
+可选技能: {', '.join(available_skills)}
+
+根据实体类型和名称，判断它应该拥有哪些技能。只需返回技能名称，用逗号分隔。如果没有特殊技能，返回"无"。
+例如：对于"老虎"，返回"移动,攻击,觅食"
+对于"小草"，返回"生长,光合作用"
+
+只返回技能列表，不要其他文字。"""
+
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            response = self.llm.chat(messages)
+            if "error" in response:
+                return []
+            
+            content = response.get("message", {}).get("content", "")
+            if content == "无" or not content:
+                return []
+            
+            skills = [s.strip() for s in content.split(",")]
+            return [s for s in skills if s in available_skills]
+        except:
+            return []
         
     def execute_command(self, command: str) -> Dict[str, Any]:
         self.conversation_history.append({
@@ -100,6 +155,19 @@ class Agent:
             print(f"[AI] 执行了 {len(results)} 个动作", flush=True)
             for r in results:
                 print(f"  - {r['tool']}: {r['result'].get('name', r['result'].get('id', 'OK'))}", flush=True)
+            
+            for r in results:
+                if r["tool"] == "create_entity" and r["result"].get("success"):
+                    entity_data = r["result"].get("result", {})
+                    entity_id = entity_data.get("id")
+                    entity_type = entity_data.get("type")
+                    entity_name = entity_data.get("name", "")
+                    if entity_id:
+                        skills = self._analyze_skills(entity_type, entity_name)
+                        if skills:
+                            for skill in skills:
+                                self.world.entities[entity_id].add_skill(skill)
+                            print(f"  [技能] {entity_name} 获得技能: {skills}", flush=True)
             
             return {
                 "success": True,

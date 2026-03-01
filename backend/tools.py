@@ -187,13 +187,29 @@ TOOLS = [
                 "required": ["name"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "entity_ask",
+            "description": "具有思考能力的实体可以向AI提问一个问题",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_name": {"type": "string", "description": "提问的实体名称"},
+                    "question": {"type": "string", "description": "实体想要问的问题"}
+                },
+                "required": ["entity_name", "question"]
+            }
+        }
     }
 ]
 
 
 class ToolExecutor:
-    def __init__(self, world_manager):
+    def __init__(self, world_manager, llm_adapter=None):
         self.world = world_manager
+        self.llm = llm_adapter
         self.tools: Dict[str, Callable] = {
             "create_entity": self._create_entity,
             "update_entity": self._update_entity,
@@ -206,7 +222,8 @@ class ToolExecutor:
             "set_entity_behavior": self._set_entity_behavior,
             "set_entity_temp_behavior": self._set_entity_temp_behavior,
             "add_type_skill": self._add_type_skill,
-            "find_entity_by_name": self._find_entity_by_name
+            "find_entity_by_name": self._find_entity_by_name,
+            "entity_ask": self._entity_ask
         }
     
     def execute(self, tool_name: str, arguments: Dict) -> Dict:
@@ -297,3 +314,36 @@ class ToolExecutor:
         if entity:
             return {"entity_id": entity.id, "name": entity.name, "type": entity.type, "x": entity.x, "y": entity.y}
         return {"error": f"找不到实体: {args['name']}"}
+    
+    def _entity_ask(self, args: Dict) -> Dict:
+        entity = self.world.find_entity_by_name(args["entity_name"])
+        if not entity:
+            return {"error": f"找不到实体: {args['entity_name']}"}
+        
+        if "思考" not in entity.skills and "思考能力" not in entity.skills:
+            return {"error": f"{entity.name}没有思考能力，无法提问"}
+        
+        if not self.llm:
+            return {"error": "AI未连接，无法回答问题"}
+        
+        question = args["question"]
+        
+        messages = [
+            {"role": "system", "content": f"你是{entity.name}，一个虚拟世界中的生物。你正在向世界管理者提问。\n\n你的问题：{question}\n\n请用简短的一句话回答这个问题。"},
+        ]
+        
+        response = self.llm.chat(messages)
+        
+        if "error" in response:
+            return {"error": response["error"]}
+        
+        answer = response.get("message", {}).get("content", "...")
+        
+        self.world.add_event(f"{entity.name}思考: {question} → {answer}")
+        
+        return {
+            "success": True,
+            "entity": entity.name,
+            "question": question,
+            "answer": answer
+        }
