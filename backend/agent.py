@@ -147,7 +147,6 @@ class Agent:
                     import json
                     parsed = json.loads(content)
                     if isinstance(parsed, list):
-                        # 假设是JSON数组格式的工具调用
                         for item in parsed:
                             if "tool" in item:
                                 tool_calls.append({
@@ -157,7 +156,6 @@ class Agent:
                                     }
                                 })
                             elif "entity_type" in item or "name" in item:
-                                # 可能是create_entity
                                 tool_calls.append({
                                     "function": {
                                         "name": "create_entity",
@@ -167,6 +165,39 @@ class Agent:
                     print(f"[AI] 从content解析出tool_calls: {len(tool_calls)}", flush=True)
                 except:
                     pass
+            
+            # 如果还是没有tool_calls，尝试从自然语言中提取创建实体的意图
+            if not tool_calls and content:
+                import re
+                # 匹配"xxx是一个xx"或"创建xxx"等模式
+                patterns = [
+                    r'([^\s，。,]{2,4})(?:是一个?|叫|名为)([男女雄雌人类生物动物]+)',
+                    r'创建.*?([^\s，。,]{2,4})(?:类型|是)([^\s，。,]+)',
+                    r'添加.*?([^\s，。,]{2,4})',
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, content)
+                    if match:
+                        name = match.group(1)
+                        entity_type = "creature"
+                        if match.lastindex and match.lastindex >= 2:
+                            type_str = match.group(2)
+                            if "人" in type_str or "男" in type_str or "女" in type_str or "人类" in type_str:
+                                entity_type = "creature"
+                        
+                        tool_calls.append({
+                            "function": {
+                                "name": "create_entity",
+                                "arguments": {
+                                    "entity_type": entity_type,
+                                    "name": name,
+                                    "x": 0,
+                                    "y": 0
+                                }
+                            }
+                        })
+                        print(f"[AI] 从content推断创建实体: {name} ({entity_type})", flush=True)
+                        break
             
             results = []
             for tool_call in tool_calls:
