@@ -140,6 +140,33 @@ class Agent:
             content = message.get("content", "")
             tool_calls = message.get("tool_calls", [])
             
+            # 如果没有tool_calls但有content，尝试解析JSON内容
+            if not tool_calls and content:
+                try:
+                    import json
+                    parsed = json.loads(content)
+                    if isinstance(parsed, list):
+                        # 假设是JSON数组格式的工具调用
+                        for item in parsed:
+                            if "tool" in item:
+                                tool_calls.append({
+                                    "function": {
+                                        "name": item["tool"],
+                                        "arguments": item.get("args", {})
+                                    }
+                                })
+                            elif "entity_type" in item or "name" in item:
+                                # 可能是create_entity
+                                tool_calls.append({
+                                    "function": {
+                                        "name": "create_entity",
+                                        "arguments": item
+                                    }
+                                })
+                    print(f"[AI] 从content解析出tool_calls: {len(tool_calls)}", flush=True)
+                except:
+                    pass
+            
             results = []
             for tool_call in tool_calls:
                 func = tool_call.get("function", {})
