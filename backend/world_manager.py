@@ -120,9 +120,23 @@ class WorldManager:
         pass
     
     def tick_world(self):
+        self._cleanup_invalid_entities()
         self.tick += 1
         self.execute_behaviors()
         self._save()
+    
+    def _cleanup_invalid_entities(self):
+        invalid_ids = []
+        for entity in self.entities.values():
+            if entity.x is None or entity.y is None or entity.x == "null" or entity.y == "null":
+                invalid_ids.append(entity.id)
+        
+        for entity_id in invalid_ids:
+            if entity_id in self.entities:
+                name = self.entities[entity_id].name
+                del self.entities[entity_id]
+                self.entity_manager.delete_entity(entity_id)
+                print(f"[清理] 删除无效实体: {name}")
     
     def execute_behaviors(self):
         import random
