@@ -1,6 +1,7 @@
 import json
 import uuid
 import os
+import random
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -18,6 +19,12 @@ class Entity:
         self.behavior = properties.get("behavior", "")
         self.skills = properties.get("skills", [])
         self.temp_behavior = properties.get("temp_behavior", {})
+        
+        if entity_type == "creature":
+            self.gender = properties.get("gender", random.choice(["雄性", "雌性"]))
+        else:
+            self.gender = properties.get("gender", "")
+        
         self.created_at = datetime.now().isoformat()
         
     def to_dict(self) -> Dict:
@@ -32,6 +39,7 @@ class Entity:
             "behavior": self.behavior,
             "skills": self.skills,
             "temp_behavior": self.temp_behavior,
+            "gender": self.gender,
             "created_at": self.created_at
         }
     

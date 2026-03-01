@@ -951,6 +951,7 @@
                     document.getElementById('entityInfo').innerHTML = `
                         <strong>${entity.name || entity.type}</strong><br>
                         类型: ${entity.type}<br>
+                        ${entity.gender ? '性别: ' + entity.gender + '<br>' : ''}
                         世界坐标: (${entity.x}, ${entity.y})${skillsHtml}${behaviorHtml}<br>
                         ${entity.description || ''}
                     `;
