@@ -188,40 +188,6 @@
             background: rgba(85, 85, 85, 0.9);
         }
         
-        #log {
-            height: 150px;
-            overflow-y: auto;
-            font-size: 12px;
-            font-family: monospace;
-            background: rgba(15, 15, 35, 0.5);
-            border-radius: 4px;
-            padding: 8px;
-        }
-        
-        #log::-webkit-scrollbar {
-            width: 5px;
-        }
-        
-        #log::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.2);
-        }
-        
-        #log::-webkit-scrollbar-thumb {
-            background: #00d4ff;
-            border-radius: 3px;
-        }
-        
-        #log .log-item {
-            padding: 4px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            color: #888;
-        }
-        
-        #log .log-item.user { color: #00d4ff; }
-        #log .log-item.ai { color: #00ff88; }
-        #log .log-item.system { color: #ffaa00; }
-        #log .log-item.error { color: #ff4444; }
-        
         .legend {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -248,14 +214,14 @@
             min-height: 60px;
         }
         
-        .log-container {
+        #log {
             position: fixed;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
             width: 1080px;
             max-width: 90vw;
-            max-height: 150px;
+            max-height: 350px;
             overflow-y: auto;
             background: rgba(0, 0, 0, 0.8);
             border: 1px solid rgba(0, 212, 255, 0.3);
@@ -266,20 +232,20 @@
             z-index: 200;
         }
 
-        .log-container::-webkit-scrollbar {
+        #log::-webkit-scrollbar {
             width: 5px;
         }
 
-        .log-container::-webkit-scrollbar-track {
+        #log::-webkit-scrollbar-track {
             background: rgba(0,0,0,0.2);
         }
 
-        .log-container::-webkit-scrollbar-thumb {
+        #log::-webkit-scrollbar-thumb {
             background: #00d4ff;
             border-radius: 3px;
         }
 
-        .log-container .log-item {
+        #log .log-item {
             padding: 3px 0;
             color: #888;
             white-space: nowrap;
@@ -287,10 +253,10 @@
             text-overflow: ellipsis;
         }
 
-        .log-container .log-item.user { color: #00d4ff; }
-        .log-container .log-item.ai { color: #00ff88; }
-        .log-container .log-item.system { color: #ffaa00; }
-        .log-container .log-item.error { color: #ff4444; }
+        #log .log-item.user { color: #00d4ff; }
+        #log .log-item.ai { color: #00ff88; }
+        #log .log-item.system { color: #ffaa00; }
+        #log .log-item.error { color: #ff4444; }
 
         .coordinates {
             position: fixed;
@@ -417,9 +383,7 @@
         </div>
     </div>
     
-    <div class="log-container" id="logContainer">
-        <div id="log"></div>
-    </div>
+    <div class="log-container" id="log"></div>
     
     <div class="coordinates">
         世界坐标: (<span id="worldX">0</span>, <span id="worldY">0</span>) | 缩放: <span id="zoomLevel">1.0</span>x
