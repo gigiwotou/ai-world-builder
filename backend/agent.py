@@ -165,8 +165,11 @@ class Agent:
     
     def auto_tick(self) -> Dict[str, Any]:
         world_state = self.world.get_state()
+        
+        self.world.tick_world()
+        
         if not world_state["entities"]:
-            return {"success": True, "message": "世界为空，无需推进"}
+            return {"success": True, "message": "世界为空", "world_state": self.world.get_state()}
         
         world_summary = self._build_world_summary(world_state)
         
