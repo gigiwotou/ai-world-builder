@@ -4,73 +4,7 @@ import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-
-class Entity:
-    def __init__(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties):
-        self.id = str(uuid.uuid4())[:8]
-        self.type = entity_type
-        self.x = x
-        self.y = y
-        self.name = name or entity_type
-        self.description = description
-        self.properties = properties
-        self.behavior = properties.get("behavior", "")
-        self.skills = properties.get("skills", [])
-        self.temp_behavior = properties.get("temp_behavior", {})
-        self.created_at = datetime.now().isoformat()
-        
-    def to_dict(self) -> Dict:
-        return {
-            "id": self.id,
-            "type": self.type,
-            "x": self.x,
-            "y": self.y,
-            "name": self.name,
-            "description": self.description,
-            "properties": self.properties,
-            "behavior": self.behavior,
-            "skills": self.skills,
-            "temp_behavior": self.temp_behavior,
-            "created_at": self.created_at
-        }
-    
-    def set_behavior(self, behavior: str):
-        self.behavior = behavior
-        self.properties["behavior"] = behavior
-        
-    def set_temp_behavior(self, behavior: str, duration: int, start_tick: int = 0):
-        self.temp_behavior = {
-            "behavior": behavior,
-            "duration": duration,
-            "start_tick": start_tick
-        }
-        self.properties["temp_behavior"] = self.temp_behavior
-        
-    def add_skill(self, skill: str):
-        if skill not in self.skills:
-            self.skills.append(skill)
-            self.properties["skills"] = self.skills
-            
-    def get_active_behavior(self, current_tick: int = 0) -> str:
-        if self.temp_behavior and self.temp_behavior.get("duration", 0) > 0:
-            start = self.temp_behavior.get("start_tick", 0)
-            duration = self.temp_behavior.get("duration", 0)
-            if current_tick < start + duration:
-                return self.temp_behavior["behavior"]
-            else:
-                self.temp_behavior = {}
-                self.properties["temp_behavior"] = {}
-        return self.behavior
-    
-    @classmethod
-    def from_dict(cls, data: Dict) -> "Entity":
-        e = cls(data["type"], data["x"], data["y"], data.get("name", ""), data.get("description", ""), **data.get("properties", {}))
-        e.id = data.get("id", e.id)
-        e.created_at = data.get("created_at", e.created_at)
-        e.behavior = data.get("behavior", "")
-        e.skills = data.get("skills", [])
-        e.temp_behavior = data.get("temp_behavior", {})
-        return e
+from .entity_manager import EntityManager, Entity
 
 
 class WorldManager:
@@ -113,6 +47,7 @@ class WorldManager:
         self.tick = 0
         self.data_dir = config.get("data_dir", "data")
         self.world_file = os.path.join(self.data_dir, "world.json")
+        self.entity_manager = EntityManager(self.data_dir)
         self._load()
         
     def _load(self):
@@ -123,11 +58,9 @@ class WorldManager:
                     self.tick = data.get("tick", 0)
                     self.rules = data.get("rules", [])
                     self.events = data.get("events", [])
-                    for e_data in data.get("entities", []):
-                        entity = Entity.from_dict(e_data)
-                        self.entities[entity.id] = entity
             except:
                 pass
+        self.entities = self.entity_manager.load_all_entities()
     
     def _save(self):
         os.makedirs(self.data_dir, exist_ok=True)
@@ -135,10 +68,13 @@ class WorldManager:
             "tick": self.tick,
             "rules": self.rules,
             "events": self.events[-100:],
-            "entities": [e.to_dict() for e in self.entities.values()]
+            "entity_ids": list(self.entities.keys())
         }
         with open(self.world_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        for entity in self.entities.values():
+            self.entity_manager.save_entity(entity)
     
     def create_entity(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties) -> Entity:
         entity = Entity(entity_type, x, y, name, description, **properties)
@@ -161,6 +97,7 @@ class WorldManager:
         if entity_id in self.entities:
             entity = self.entities[entity_id]
             del self.entities[entity_id]
+            self.entity_manager.delete_entity(entity_id)
             self.add_event(f"删除了{entity.name}")
             self._save()
             return True
@@ -271,6 +208,15 @@ class WorldManager:
             if name_lower in entity.name.lower():
                 return entity
         return None
+    
+    def get_entity_memory(self, entity_id: str) -> str:
+        return self.entity_manager.read_entity_memory(entity_id)
+    
+    def write_entity_memory(self, entity_id: str, content: str):
+        self.entity_manager.write_entity_memory(entity_id, content)
+    
+    def append_entity_memory(self, entity_id: str, content: str):
+        self.entity_manager.append_entity_memory(entity_id, content)
     
     def get_state(self) -> Dict:
         return {
