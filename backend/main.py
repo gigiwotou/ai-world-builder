@@ -36,7 +36,7 @@ if config_file.exists():
 
 llm = LLMAdapter(config)
 world = WorldManager(config)
-memory = Memory(config["data_dir"])
+memory = Memory(config["data_dir"], config)
 transcript = Transcript(config["data_dir"])
 agent = Agent(llm, world, memory, transcript)
 

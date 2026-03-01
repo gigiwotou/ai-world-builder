@@ -16,10 +16,11 @@ CORE_FILES = {
 
 
 class Memory:
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, config: Dict = None):
         self.data_dir = Path(data_dir)
         self.memory_dir = self.data_dir / MEMORY_DIR
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.config = config or {}
         
         self._init_core_files()
     
@@ -53,15 +54,7 @@ class Memory:
 3. 使用工具执行操作
 4. 描述执行结果
 """,
-            "MEMORY.md": """# MEMORY.md - 长期知识
-
-## 世界规则
-- 世界是40x30的网格（每个格子20像素）
-- 实体类型：land, plant, creature, building, resource, water, fire
-
-## 已知实体
-（由AI自动更新）
-""",
+            "MEMORY.md": self._generate_memory_content(),
             "USER.md": """# USER.md - 用户信息
 
 （由AI自动更新）
@@ -84,6 +77,25 @@ class Memory:
             if not filepath.exists():
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(content)
+    
+    def _generate_memory_content(self) -> str:
+        world_width = self.config.get("world_width", 800)
+        world_height = self.config.get("world_height", 600)
+        cell_size = self.config.get("cell_size", 20)
+        
+        grid_width = world_width // cell_size
+        grid_height = world_height // cell_size
+        
+        return f"""# MEMORY.md - 长期知识
+
+## 世界规则
+- 世界是无限大的网格坐标系统（坐标可正可负）
+- 每个格子 {cell_size} 像素
+- 实体类型：land(陆地), plant(植物), creature(生物), building(建筑), resource(资源), water(水), fire(火)
+
+## 已知实体
+（由AI自动更新）
+"""
     
     def get_soul(self) -> str:
         return self._read_file("SOUL.md")
