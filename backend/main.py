@@ -158,7 +158,8 @@ async def get_status():
             "provider": config.get("provider"),
             "model": config.get("model"),
             "tick_interval": config.get("tick_interval")
-        }
+        },
+        "tokens": llm.get_token_stats()
     }
 
 if __name__ == "__main__":

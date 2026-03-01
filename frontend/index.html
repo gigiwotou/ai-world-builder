@@ -344,6 +344,10 @@
                 <span class="label">规则:</span>
                 <span class="value" id="ruleCount">0</span>
             </div>
+            <div class="status-item">
+                <span class="label">Token:</span>
+                <span class="value" id="tokenCount">0</span>
+            </div>
         </div>
     </div>
     
@@ -712,6 +716,15 @@
             document.getElementById('worldTick').textContent = `T=${worldState.tick}`;
             document.getElementById('entityCount').textContent = worldState.entities.length;
             document.getElementById('ruleCount').textContent = worldState.rules.length;
+            
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.tokens) {
+                        document.getElementById('tokenCount').textContent = data.tokens.total_tokens;
+                    }
+                })
+                .catch(() => {});
         }
         
         function addLog(type, message) {

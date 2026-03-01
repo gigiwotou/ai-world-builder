@@ -9,7 +9,34 @@ class LLMAdapter:
         self.model = config.get("model", "qwen2.5:7b")
         self.base_url = config.get("base_url", "http://localhost:11434")
         self.api_key = config.get("api_key", "")
+        self.total_tokens = 0
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.request_count = 0
         
+    def _update_tokens(self, usage: Dict):
+        if usage:
+            prompt = usage.get("prompt_tokens", 0) or usage.get("prompt_token_count", 0)
+            completion = usage.get("completion_tokens", 0) or usage.get("completion_token_count", 0)
+            self.total_prompt_tokens += prompt
+            self.total_completion_tokens += completion
+            self.total_tokens += prompt + completion
+            self.request_count += 1
+    
+    def get_token_stats(self) -> Dict:
+        return {
+            "total_tokens": self.total_tokens,
+            "prompt_tokens": self.total_prompt_tokens,
+            "completion_tokens": self.total_completion_tokens,
+            "request_count": self.request_count
+        }
+    
+    def reset_stats(self):
+        self.total_tokens = 0
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.request_count = 0
+    
     def chat(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None) -> Dict[str, Any]:
         if self.provider == "ollama":
             return self._ollama_chat(messages, tools)
@@ -33,7 +60,12 @@ class LLMAdapter:
         try:
             response = requests.post(url, json=payload, timeout=120)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            if "usage" in result:
+                self._update_tokens(result["usage"])
+            elif "eval_count" in result:
+                self._update_tokens({"prompt_tokens": result.get("prompt_eval_count", 0), "completion_tokens": result.get("eval_count", 0)})
+            return result
         except requests.exceptions.ConnectionError:
             return {"error": "无法连接到Ollama服务，请确保Ollama正在运行"}
         except Exception as e:
@@ -56,7 +88,10 @@ class LLMAdapter:
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=120)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            if "usage" in result:
+                self._update_tokens(result["usage"])
+            return result
         except Exception as e:
             return {"error": str(e)}
     
