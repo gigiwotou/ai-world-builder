@@ -435,33 +435,47 @@ class Agent:
     def _parse_command_intent(self, command: str) -> List[Dict]:
         """让 LLM 分析用户意图，返回结构化数据"""
         
-        # 调用 analyze_intent 工具让 LLM 分析
-        intent_result = self.executor.execute("analyze_intent", {"command": command})
+        prompt = f"""你是一个指令分析器。请分析以下用户指令，返回结构化JSON。
+
+用户指令：{command}
+
+请返回JSON格式的分析结果：
+{{
+    "action": "操作类型(create_entity/move_entity/set_behavior/delete_entity/add_rule/none)",
+    "entity_type": "实体类型(creature/plant/building/resource/water/fire)",
+    "entity_name": "实体名称",
+    "x": 数字坐标X,
+    "y": 数字坐标Y,
+    "behavior": "行为描述",
+    "description": "描述"
+}}
+
+规则：
+- 只返回JSON，不要其他文字
+- 坐标默认为0,0
+- entity_type根据名称推断：人/男/女/小明/狼/狗 → creature，树/草/花 → plant
+
+只返回JSON！"""
+
+        messages = [{"role": "user", "content": prompt}]
+        response = self.llm.chat(messages)
         
-        if not intent_result.get("success"):
-            print(f"[AI] 意图分析失败: {intent_result.get('error')}", flush=True)
+        if "error" in response:
+            print(f"[AI] 意图分析失败: {response['error']}", flush=True)
             return []
         
-        intent_data = intent_result.get("result", {})
+        content = response.get("message", {}).get("content", "")
         
-        # 处理嵌套的 result 结构
-        if isinstance(intent_data, dict) and "result" in intent_data:
-            intent_data = intent_data["result"]
-        
-        # 检查是否有错误
-        if isinstance(intent_data, dict) and "error" in intent_data:
-            print(f"[AI] 意图分析返回错误: {intent_data.get('error')}", flush=True)
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if not json_match:
+            print(f"[AI] 无法解析JSON: {content[:100]}", flush=True)
             return []
         
-        if isinstance(intent_data, str):
-            try:
-                import json
-                intent_data = json.loads(intent_data)
-            except:
-                pass
-        
-        if not isinstance(intent_data, dict):
-            print(f"[AI] 意图分析返回格式错误: {type(intent_data)}", flush=True)
+        try:
+            intent_data = json.loads(json_match.group())
+        except:
+            print(f"[AI] JSON解析失败", flush=True)
             return []
         
         action = intent_data.get("action", "none")
