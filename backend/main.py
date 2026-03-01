@@ -61,15 +61,13 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-tick_thread = None
-running = False
+running = True
 
 def tick_loop():
-    global running
     while running:
         try:
             result = agent.auto_tick()
-            if result.get("success") and result.get("actions"):
+            if result.get("success"):
                 asyncio.run(manager.broadcast({
                     "type": "tick",
                     "data": result.get("world_state"),
@@ -77,7 +75,12 @@ def tick_loop():
                 }))
         except Exception as e:
             print(f"Tick error: {e}")
-        asyncio.run(asyncio.sleep(config.get("tick_interval", 5)))
+        import time
+        time.sleep(config.get("tick_interval", 5))
+
+import threading
+tick_thread = threading.Thread(target=tick_loop, daemon=True)
+tick_thread.start()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -113,22 +116,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
                 
             elif msg_type == "start_tick":
-                global running, tick_thread
-                if not running:
-                    running = True
-                    tick_thread = threading.Thread(target=tick_loop, daemon=True)
-                    tick_thread.start()
-                    await websocket.send_json({
-                        "type": "info",
-                        "message": "世界自动推进已启动"
-                    })
-                    
-            elif msg_type == "stop_tick":
-                running = False
                 await websocket.send_json({
                     "type": "info",
-                    "message": "世界自动推进已停止"
+                    "message": "世界自动推进运行中"
                 })
+                    
+            elif msg_type == "stop_tick":
+                pass
                 
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
