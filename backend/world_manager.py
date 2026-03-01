@@ -72,7 +72,14 @@ class WorldManager:
         for entity in self.entities.values():
             self.entity_manager.save_entity(entity)
     
-    def create_entity(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties) -> Entity:
+    def create_entity(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties) -> Optional[Entity]:
+        if x is None or y is None:
+            return None
+        
+        for e in self.entities.values():
+            if e.x == x and e.y == y:
+                return None
+        
         entity = Entity(entity_type, x, y, name, description, **properties)
         self.entities[entity.id] = entity
         self.add_event(f"创建了{name or entity_type}")
