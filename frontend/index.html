@@ -465,7 +465,6 @@
             <input type="text" id="commandInput" placeholder="输入指令创造世界... (例如: 创造一个森林)">
             <div class="controls">
                 <button class="btn" id="sendBtn">发送</button>
-                <button class="btn secondary" id="autoBtn">自动: 关</button>
             </div>
         </div>
         
@@ -536,7 +535,6 @@
         
         let ws = null;
         let worldState = { entities: [], tick: 0, rules: [] };
-        let autoRunning = false;
         
         let offsetX = 0;
         let offsetY = 0;
@@ -866,14 +864,6 @@
             document.getElementById('commandInput').value = '';
         }
         
-        function toggleAuto() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            
-            autoRunning = !autoRunning;
-            document.getElementById('autoBtn').textContent = `自动: ${autoRunning ? '开' : '关'}`;
-            ws.send(JSON.stringify({ type: autoRunning ? 'start_tick' : 'stop_tick' }));
-        }
-        
         function updateStatus() {
             document.getElementById('worldTick').textContent = `T=${worldState.tick}`;
             document.getElementById('entityCount').textContent = worldState.entities.length;
@@ -947,8 +937,6 @@
         document.getElementById('sendBtn').addEventListener('click', () => {
             sendCommand(document.getElementById('commandInput').value);
         });
-        
-        document.getElementById('autoBtn').addEventListener('click', toggleAuto);
         
         connect();
     </script>
