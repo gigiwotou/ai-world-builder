@@ -756,8 +756,9 @@
             const entities = worldState.entities || [];
             
             const filtered = entities.filter(e => 
-                e.name.toLowerCase().includes(search) || 
-                e.type.toLowerCase().includes(search)
+                e.id && e.x !== null && e.y !== null &&
+                (e.name.toLowerCase().includes(search) || 
+                 e.type.toLowerCase().includes(search))
             );
             
             document.getElementById('entityListCount').textContent = `(${entities.length})`;
@@ -779,6 +780,11 @@
         }
         
         function focusEntity(id, x, y) {
+            if (x === null || y === null || x === undefined || y === undefined) {
+                addLog('error', '实体坐标无效');
+                return;
+            }
+            
             offsetX = 0;
             offsetY = 0;
             scale = 1;
