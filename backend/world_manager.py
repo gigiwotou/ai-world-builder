@@ -4,7 +4,7 @@ import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from .entity_manager import EntityManager, Entity
+from .entity_manager import EntityManager, Entity, TerrainManager
 
 
 class WorldManager:
@@ -47,6 +47,8 @@ class WorldManager:
         self.data_dir = config.get("data_dir", "data")
         self.world_file = os.path.join(self.data_dir, "world.json")
         self.entity_manager = EntityManager(self.data_dir)
+        self.terrain_manager = TerrainManager(self.data_dir)
+        self.agent_instance = None # 会在Agent初始化时传入
         self._load()
         
     def _load(self):
@@ -169,15 +171,26 @@ class WorldManager:
                 continue
             
             if entity.type == "creature":
+                # 获取移动规则
+                can_move_terrains = self.get_move_rules_for_entity(entity.type, entity.skills)
+                
                 if behavior == "向四周探索" or behavior == "随机移动":
                     dx = random.choice([-1, 0, 1])
                     dy = random.choice([-1, 0, 1])
                     if dx != 0 or dy != 0:
                         new_x = max(-1000, min(1000, entity.x + dx))
                         new_y = max(-1000, min(1000, entity.y + dy))
-                        if not any(e.x == new_x and e.y == new_y for e in self.entities.values()):
+                        
+                        target_terrain = self.get_terrain_at(new_x, new_y)
+                        if target_terrain == "未探索":
+                            # 如果是未探索区域，先不移动，由agent去探索
+                            continue
+                        
+                        if target_terrain in can_move_terrains and \
+                           not any(e.x == new_x and e.y == new_y for e in self.entities.values()):
                             entity.x = new_x
                             entity.y = new_y
+                            print(f"[移动] {entity.name} 移动到 ({entity.x}, {entity.y}) (地形: {target_terrain})")
                             
                 elif behavior == "休息" or behavior == "静止":
                     pass
@@ -198,6 +211,11 @@ class WorldManager:
                         dy = random.choice([-1, 0, 1])
                         new_x = entity.x + dx
                         new_y = entity.y + dy
+                        
+                        target_terrain = self.get_terrain_at(new_x, new_y)
+                        if target_terrain == "未探索":
+                            continue
+                        
                         if not any(e.x == new_x and e.y == new_y for e in self.entities.values()):
                             self.create_entity("fire", new_x, new_y, "火")
     
@@ -276,6 +294,37 @@ class WorldManager:
     def append_entity_memory(self, entity_id: str, content: str):
         self.entity_manager.append_entity_memory(entity_id, content)
     
+    def get_terrain_at(self, x: int, y: int) -> str:
+        return self.terrain_manager.get_terrain(x, y)
+    
+    def get_visible_terrain(self, entities: List[Entity], view_range: int = 5) -> Dict:
+        visible = {}
+        for entity in entities:
+            for dx in range(-view_range, view_range + 1):
+                for dy in range(-view_range, view_range + 1):
+                    x, y = entity.x + dx, entity.y + dy
+                    key = f"{x},{y}"
+                    if key not in visible:
+                        visible[key] = {
+                            "x": x,
+                            "y": y,
+                            "terrain": self.terrain_manager.get_terrain(x, y)
+                        }
+        return visible
+    
+    def explore_terrain(self, x: int, y: int, terrain_type: str):
+        self.terrain_manager.set_terrain(x, y, terrain_type)
+    
+    def get_nearby_unexplored(self, x: int, y: int) -> List[tuple]:
+        return self.terrain_manager.get_nearby_unexplored(x, y)
+    
+    def get_surrounding_9(self, x: int, y: int) -> List[Dict]:
+        return self.terrain_manager.get_surrounding_9(x, y)
+    
+    def get_move_rules_for_entity(self, entity_type: str, skills: List[str]) -> List[str]:
+        # 这是一个占位符，实际规则从LLM获取
+        return self.agent_instance._get_move_rules_from_llm(entity_type, skills)
+
     def get_state(self) -> Dict:
         return {
             "tick": self.tick,

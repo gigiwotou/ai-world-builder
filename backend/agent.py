@@ -1,3 +1,4 @@
+import json
 from typing import Dict, List, Any, Optional
 from .llm_adapter import LLMAdapter
 from .world_manager import WorldManager
@@ -40,13 +41,25 @@ SYSTEM_PROMPT_BASE = """你是一个虚拟世界的管理者AI。你的任务是
 
 **重要**:
 - 只使用提供的工具，不要自己编造
-- 保持简短但有描述性的反馈"""
+- 保持简短但有描述性的反馈
+
+**地形探索系统**:
+- 世界基础地形：陆地、山川、河流、海洋
+- 未被探索的区域是黑色迷雾
+- 当生物进入新坐标时，周围3x3区域被探索
+- 使用 explore_terrain 工具让AI决定这9个坐标的地形
+
+**地形移动规则**:
+- 不同生物类型在不同地形有不同的移动能力
+- 使用 get_move_rules 工具询问AI某生物能移动到哪些地形
+- 根据返回的规则限制生物移动"""
 
 
 class Agent:
     def __init__(self, llm: LLMAdapter, world: WorldManager, memory: Memory = None):
         self.llm = llm
         self.world = world
+        self.world.agent_instance = self # 注入agent实例到world，用于llm规则获取
         self.executor = ToolExecutor(world, llm)
         self.memory = memory
         self.conversation_history: List[Dict[str, str]] = []
@@ -86,19 +99,32 @@ class Agent:
             return [s for s in skills if s]
         except:
             return []
+    
+    def _explore_surrounding_terrain(self, entity_id: str):
+        entity = self.world.get_entity(entity_id)
+        if not entity or entity.x is None or entity.y is None:
+            return
+        
+        surrounding_unexplored = self.world.get_nearby_unexplored(entity.x, entity.y)
+        if not surrounding_unexplored:
+            return
+        
+        # 告诉AI需要探索哪些点
+        prompt = f"实体 {entity.name} (类型: {entity.type}) 位于 ({entity.x}, {entity.y})。\n请使用 explore_terrain 工具探索其周围3x3未探索的区域，并决定这些区域的地形类型。\n需要探索的坐标有: {surrounding_unexplored}。\n\n请确保返回的地形类型是「陆地」「山川」「河流」或「海洋」，并遵循大片陆地、大片海洋、长河流、大山川的规则。"
+        
+        self.llm.chat([
+            {"role": "system", "content": self._build_system_prompt()},
+            {"role": "user", "content": prompt}
+        ], TOOLS)
         
     def execute_command(self, command: str) -> Dict[str, Any]:
-        self.conversation_history.append({
-            "role": "user",
-            "content": command
-        })
-        
         world_state = self.world.get_state()
         world_summary = self._build_world_summary(world_state)
         
         messages = [
             {"role": "system", "content": self._build_system_prompt()},
             {"role": "system", "content": f"当前世界状态:\n{world_summary}"},
+            {"role": "user", "content": command}
         ] + self.conversation_history[-5:]
         
         print(f"[AI] 收到指令: {command[:30]}...", flush=True)
@@ -152,7 +178,16 @@ class Agent:
                             for skill in skills:
                                 self.world.entities[entity_id].add_skill(skill)
                             print(f"  [技能] {entity_name} 获得技能: {skills}", flush=True)
-            
+                        
+                        # 生物创建后探索周围地形
+                        self._explore_surrounding_terrain(entity_id)
+                
+                elif r["tool"] == "move_entity" and r["result"].get("success"):
+                    entity_data = r["result"].get("result", {})
+                    entity_id = entity_data.get("id")
+                    if entity_id:
+                        self._explore_surrounding_terrain(entity_id)
+
             return {
                 "success": True,
                 "response": content,
@@ -168,6 +203,10 @@ class Agent:
         
         self.world.tick_world()
         
+        for entity in world_state["entities"]:
+            if entity["type"] == "creature":
+                self._explore_surrounding_terrain(entity["id"])
+                
         if not world_state["entities"]:
             return {"success": True, "message": "世界为空", "world_state": self.world.get_state()}
         
@@ -215,6 +254,38 @@ class Agent:
         except Exception as e:
             self.world.tick_world()
             return {"success": True, "error": str(e), "world_state": self.world.get_state()}
+    
+    def _get_move_rules_from_llm(self, entity_type: str, skills: List[str]) -> List[str]:
+        prompt = f"""判断类型为 {entity_type}，拥有技能 {skills} 的实体可以在什么地形上移动？
+        
+可选地形类型：陆地、山川、河流、海洋
+
+规则示例：
+- 陆地生物：只能移动到陆地、山川
+- 飞行生物：可以移动到任何地形
+- 水生生物：只能移动到河流、海洋
+- 有游泳技能的生物：可以移动到河流、海洋
+
+请直接返回该实体可以移动到的地形类型列表，用逗号分隔。例如："陆地,山川" """
+
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            response = self.llm.chat(messages)
+            if "error" in response:
+                return ["陆地", "山川"]  # 默认值
+            
+            content = response.get("message", {}).get("content", "")
+            if not content:
+                return ["陆地", "山川"]
+            
+            terrains = [t.strip() for t in content.split(",")]
+            valid_terrains = ["陆地", "山川", "河流", "海洋"]
+            return [t for t in terrains if t in valid_terrains]
+        except:
+            return ["陆地", "山川"]
     
     def _build_world_summary(self, state: Dict) -> str:
         summary = f"世界时间: T={state['tick']}\n"

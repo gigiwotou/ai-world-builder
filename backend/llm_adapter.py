@@ -38,14 +38,43 @@ class LLMAdapter:
         self.request_count = 0
     
     def chat(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        print(f"\n{'='*60}", flush=True)
+        print(f"[LLM请求] provider={self.provider} model={self.model}", flush=True)
+        print(f"[LLM请求] messages数量: {len(messages)}", flush=True)
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                content_preview = content[:200] + "..." if len(content) > 200 else content
+            else:
+                content_preview = str(content)[:200]
+            print(f"  [{i}] {role}: {content_preview}", flush=True)
+        if tools:
+            print(f"[LLM请求] tools数量: {len(tools)}", flush=True)
+        print(f"{'='*60}\n", flush=True)
+        
         if self.provider == "ollama":
-            return self._ollama_chat(messages, tools)
+            result = self._ollama_chat(messages, tools)
         elif self.provider == "openai":
-            return self._openai_chat(messages, tools)
+            result = self._openai_chat(messages, tools)
         elif self.provider == "anthropic":
-            return self._anthropic_chat(messages, tools)
+            result = self._anthropic_chat(messages, tools)
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
+        
+        if "error" in result:
+            print(f"\n[LLM响应] 错误: {result['error']}\n", flush=True)
+        else:
+            response_content = result.get("message", {}).get("content", "")
+            tool_calls = result.get("message", {}).get("tool_calls", [])
+            print(f"\n[LLM响应] content: {response_content[:300] if response_content else '(无)'}...", flush=True)
+            print(f"[LLM响应] tool_calls数量: {len(tool_calls)}", flush=True)
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                print(f"  - {func.get('name')}: {func.get('arguments', {})}", flush=True)
+            print(f"\n{'='*60}\n", flush=True)
+        
+        return result
     
     def _ollama_chat(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}/api/chat"

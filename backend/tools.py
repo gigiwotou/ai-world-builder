@@ -202,6 +202,21 @@ TOOLS = [
                 "required": ["entity_name", "question"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explore_terrain",
+            "description": "探索指定坐标周围3x3区域的地形，由AI决定每个坐标的地形类型",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "中心X坐标"},
+                    "y": {"type": "integer", "description": "中心Y坐标"}
+                },
+                "required": ["x", "y"]
+            }
+        }
     }
 ]
 
@@ -223,7 +238,8 @@ class ToolExecutor:
             "set_entity_temp_behavior": self._set_entity_temp_behavior,
             "add_type_skill": self._add_type_skill,
             "find_entity_by_name": self._find_entity_by_name,
-            "entity_ask": self._entity_ask
+            "entity_ask": self._entity_ask,
+            "explore_terrain": self._explore_terrain
         }
     
     def execute(self, tool_name: str, arguments: Dict) -> Dict:
@@ -349,3 +365,53 @@ class ToolExecutor:
             "question": question,
             "answer": answer
         }
+    
+    def _explore_terrain(self, args: Dict) -> Dict:
+        x, y = args["x"], args["y"]
+        surrounding = self.world.get_surrounding_9(x, y)
+        
+        prompt = f"""你是一个世界地形规划者AI。你的任务是根据给定的中心坐标和周围地形，判断其中未探索的区域应该是什么地形。
+
+**当前已探索区域**:
+{json.dumps(surrounding, ensure_ascii=False, indent=2)}
+
+**世界已知规则**:
+- 陆地很大，海洋更大，河流很长，山比生物大几倍
+- 地形类型：陆地、山川、河流、海洋、未探索
+
+请为每个"未探索"的坐标，决定其地形类型。返回一个JSON列表，每个元素包含x, y和terrain_type。
+
+示例格式:
+[
+  {{"x": 1, "y": 1, "terrain_type": "陆地"}},
+  {{"x": 1, "y": 2, "terrain_type": "河流"}}
+]
+
+只需返回JSON列表，不要任何其他文字。"""
+        
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            response = self.llm.chat(messages)
+            if "error" in response:
+                return {"error": response["error"]}
+            
+            content = response.get("message", {}).get("content", "")
+            if not content:
+                return {"success": False, "message": "LLM未返回地形信息"}
+            
+            terrain_decisions = json.loads(content)
+            
+            explored_count = 0
+            for td in terrain_decisions:
+                nx, ny, terrain_type = td["x"], td["y"], td["terrain_type"]
+                if self.world.get_terrain_at(nx, ny) == "未探索":
+                    self.world.explore_terrain(nx, ny, terrain_type)
+                    explored_count += 1
+            
+            return {"success": True, "explored_count": explored_count, "new_terrain": terrain_decisions}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e), "raw_response": response}
