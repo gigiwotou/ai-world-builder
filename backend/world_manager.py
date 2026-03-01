@@ -326,6 +326,16 @@ class WorldManager:
         return self.agent_instance._get_move_rules_from_llm(entity_type, skills)
 
     def get_state(self) -> Dict:
+        terrain_data = {}
+        for entity in self.entities.values():
+            for dx in range(-15, 16):
+                for dy in range(-15, 16):
+                    x, y = entity.x + dx, entity.y + dy
+                    key = f"{x},{y}"
+                    if key not in terrain_data:
+                        terrain = self.terrain_manager.get_terrain(x, y)
+                        terrain_data[key] = terrain
+        
         return {
             "tick": self.tick,
             "entities": [e.to_dict() for e in self.entities.values()],
@@ -333,7 +343,8 @@ class WorldManager:
             "stats": {
                 "entity_count": len(self.entities),
                 "rule_count": len(self.rules)
-            }
+            },
+            "terrain": terrain_data
         }
     
     def get_summary(self) -> str:
