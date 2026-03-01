@@ -122,6 +122,14 @@ class WorldManager:
         self.entities[entity.id] = entity
         self.add_event(f"创建了{name or entity_type}")
         print(f"[World] 创建实体成功: {entity.name} (id={entity.id}) at ({x},{y})", flush=True)
+        
+        # 立即保存实体文件
+        try:
+            self.entity_manager.save_entity(entity)
+            print(f"[World] 实体已保存: {entity.id}.json", flush=True)
+        except Exception as e:
+            print(f"[World] 保存实体失败: {e}", flush=True)
+        
         self._save()
         return entity
     
