@@ -121,6 +121,107 @@
             gap: 15px;
         }
         
+        .right-panel {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 250px;
+            background: rgba(22, 33, 62, 0.9);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            z-index: 100;
+            overflow: hidden;
+        }
+        
+        .right-panel.collapsed .panel-content {
+            display: none;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            cursor: pointer;
+            background: rgba(0, 212, 255, 0.1);
+        }
+        
+        .panel-header h3 {
+            margin: 0;
+            font-size: 14px;
+            color: #00d4ff;
+            border: none;
+            padding: 0;
+        }
+        
+        #panelToggle {
+            color: #00d4ff;
+            font-size: 12px;
+        }
+        
+        .panel-content {
+            padding: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        #entitySearch {
+            width: 100%;
+            padding: 8px;
+            background: rgba(15, 15, 35, 0.9);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 12px;
+            margin-bottom: 10px;
+            outline: none;
+        }
+        
+        #entitySearch:focus {
+            border-color: #00d4ff;
+        }
+        
+        #entityList {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .entity-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        
+        .entity-item:hover {
+            background: rgba(0, 212, 255, 0.2);
+        }
+        
+        .entity-item .color-box {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+        
+        .entity-item .name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .entity-item .coords {
+            color: #888;
+            font-size: 10px;
+        }
+        
         .panel {
             background: rgba(22, 33, 62, 0.9);
             border-radius: 12px;
@@ -387,6 +488,17 @@
         </div>
     </div>
     
+    <div class="ui-overlay right-panel" id="rightPanel">
+        <div class="panel-header" onclick="toggleEntityPanel()">
+            <h3>📋 实体列表 <span id="entityListCount">(0)</span></h3>
+            <span id="panelToggle">▼</span>
+        </div>
+        <div class="panel-content" id="entityPanelContent">
+            <input type="text" id="entitySearch" placeholder="搜索实体..." oninput="filterEntities()">
+            <div id="entityList"></div>
+        </div>
+    </div>
+    
     <div class="log-container" id="log"></div>
     
     <div class="coordinates">
@@ -463,6 +575,7 @@
             drawGrid();
             drawEntities();
             drawOrigin();
+            renderEntityList();
         }
         
         function drawGrid() {
@@ -630,6 +743,55 @@
             scale = 1;
             document.getElementById('zoomLevel').textContent = '1.0';
             render();
+        }
+        
+        function toggleEntityPanel() {
+            const panel = document.getElementById('rightPanel');
+            const toggle = document.getElementById('panelToggle');
+            panel.classList.toggle('collapsed');
+            toggle.textContent = panel.classList.contains('collapsed') ? '▶' : '▼';
+        }
+        
+        function renderEntityList() {
+            const list = document.getElementById('entityList');
+            const search = document.getElementById('entitySearch').value.toLowerCase();
+            const entities = worldState.entities || [];
+            
+            const filtered = entities.filter(e => 
+                e.name.toLowerCase().includes(search) || 
+                e.type.toLowerCase().includes(search)
+            );
+            
+            document.getElementById('entityListCount').textContent = `(${entities.length})`;
+            
+            list.innerHTML = filtered.map(e => {
+                const color = COLORS[e.type] || COLORS.default;
+                return `
+                    <div class="entity-item" onclick="focusEntity('${e.id}', ${e.x}, ${e.y})">
+                        <div class="color-box" style="background:${color}"></div>
+                        <div class="name">${e.name || e.type}</div>
+                        <div class="coords">(${e.x},${e.y})</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function filterEntities() {
+            renderEntityList();
+        }
+        
+        function focusEntity(id, x, y) {
+            offsetX = 0;
+            offsetY = 0;
+            scale = 1;
+            document.getElementById('zoomLevel').textContent = '1.0';
+            
+            const screen = worldToScreen(x, y);
+            offsetX = canvas.width / 2 - screen.x;
+            offsetY = canvas.height / 2 - screen.y;
+            
+            render();
+            addLog('system', `定位到实体: (${x}, ${y})`);
         }
         
         function connect() {
