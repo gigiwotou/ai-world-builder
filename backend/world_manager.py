@@ -43,7 +43,6 @@ class WorldManager:
         self.cell_size = config.get("cell_size", 20)
         self.entities: Dict[str, Entity] = {}
         self.rules: List[str] = []
-        self.events: List[Dict] = []
         self.tick = 0
         self.data_dir = config.get("data_dir", "data")
         self.world_file = os.path.join(self.data_dir, "world.json")
@@ -57,7 +56,6 @@ class WorldManager:
                     data = json.load(f)
                     self.tick = data.get("tick", 0)
                     self.rules = data.get("rules", [])
-                    self.events = data.get("events", [])
             except:
                 pass
         self.entities = self.entity_manager.load_all_entities()
@@ -66,9 +64,7 @@ class WorldManager:
         os.makedirs(self.data_dir, exist_ok=True)
         data = {
             "tick": self.tick,
-            "rules": self.rules,
-            "events": self.events[-100:],
-            "entity_ids": list(self.entities.keys())
+            "rules": self.rules
         }
         with open(self.world_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -121,13 +117,7 @@ class WorldManager:
             self._save()
     
     def add_event(self, message: str):
-        self.events.append({
-            "tick": self.tick,
-            "message": message,
-            "time": datetime.now().isoformat()
-        })
-        if len(self.events) > 100:
-            self.events = self.events[-100:]
+        pass
     
     def tick_world(self):
         self.tick += 1
@@ -223,7 +213,6 @@ class WorldManager:
             "tick": self.tick,
             "entities": [e.to_dict() for e in self.entities.values()],
             "rules": self.rules,
-            "events": self.events[-20:],
             "stats": {
                 "entity_count": len(self.entities),
                 "rule_count": len(self.rules)
