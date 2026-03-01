@@ -1,0 +1,304 @@
+import json
+import uuid
+import os
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+
+
+class Entity:
+    def __init__(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties):
+        self.id = str(uuid.uuid4())[:8]
+        self.type = entity_type
+        self.x = x
+        self.y = y
+        self.name = name or entity_type
+        self.description = description
+        self.properties = properties
+        self.behavior = properties.get("behavior", "")
+        self.skills = properties.get("skills", [])
+        self.temp_behavior = properties.get("temp_behavior", {})
+        self.created_at = datetime.now().isoformat()
+        
+    def to_dict(self) -> Dict:
+        return {
+            "id": self.id,
+            "type": self.type,
+            "x": self.x,
+            "y": self.y,
+            "name": self.name,
+            "description": self.description,
+            "properties": self.properties,
+            "behavior": self.behavior,
+            "skills": self.skills,
+            "temp_behavior": self.temp_behavior,
+            "created_at": self.created_at
+        }
+    
+    def set_behavior(self, behavior: str):
+        self.behavior = behavior
+        self.properties["behavior"] = behavior
+        
+    def set_temp_behavior(self, behavior: str, duration: int, start_tick: int = 0):
+        self.temp_behavior = {
+            "behavior": behavior,
+            "duration": duration,
+            "start_tick": start_tick
+        }
+        self.properties["temp_behavior"] = self.temp_behavior
+        
+    def add_skill(self, skill: str):
+        if skill not in self.skills:
+            self.skills.append(skill)
+            self.properties["skills"] = self.skills
+            
+    def get_active_behavior(self, current_tick: int = 0) -> str:
+        if self.temp_behavior and self.temp_behavior.get("duration", 0) > 0:
+            start = self.temp_behavior.get("start_tick", 0)
+            duration = self.temp_behavior.get("duration", 0)
+            if current_tick < start + duration:
+                return self.temp_behavior["behavior"]
+            else:
+                self.temp_behavior = {}
+                self.properties["temp_behavior"] = {}
+        return self.behavior
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Entity":
+        e = cls(data["type"], data["x"], data["y"], data.get("name", ""), data.get("description", ""), **data.get("properties", {}))
+        e.id = data.get("id", e.id)
+        e.created_at = data.get("created_at", e.created_at)
+        e.behavior = data.get("behavior", "")
+        e.skills = data.get("skills", [])
+        e.temp_behavior = data.get("temp_behavior", {})
+        return e
+
+
+class WorldManager:
+    ENTITY_COLORS = {
+        "land": "#8B4513",
+        "plant": "#228B22", 
+        "creature": "#FF6347",
+        "building": "#4682B4",
+        "resource": "#FFD700",
+        "water": "#1E90FF",
+        "fire": "#FF4500",
+        "default": "#808080"
+    }
+    
+    ENTITY_LABELS = {
+        "land": "地",
+        "plant": "植",
+        "creature": "生",
+        "building": "建",
+        "resource": "矿",
+        "water": "水",
+        "fire": "火",
+        "default": "？"
+    }
+    
+    TYPE_SKILLS = {
+        "creature": ["移动", "觅食", "饮水"],
+        "plant": ["生长"],
+        "fire": ["燃烧", "蔓延"]
+    }
+    
+    def __init__(self, config: Dict):
+        self.config = config
+        self.width = config.get("world_width", 800)
+        self.height = config.get("world_height", 600)
+        self.cell_size = config.get("cell_size", 20)
+        self.entities: Dict[str, Entity] = {}
+        self.rules: List[str] = []
+        self.events: List[Dict] = []
+        self.tick = 0
+        self.data_dir = config.get("data_dir", "data")
+        self.world_file = os.path.join(self.data_dir, "world.json")
+        self._load()
+        
+    def _load(self):
+        if os.path.exists(self.world_file):
+            try:
+                with open(self.world_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.tick = data.get("tick", 0)
+                    self.rules = data.get("rules", [])
+                    self.events = data.get("events", [])
+                    for e_data in data.get("entities", []):
+                        entity = Entity.from_dict(e_data)
+                        self.entities[entity.id] = entity
+            except:
+                pass
+    
+    def _save(self):
+        os.makedirs(self.data_dir, exist_ok=True)
+        data = {
+            "tick": self.tick,
+            "rules": self.rules,
+            "events": self.events[-100:],
+            "entities": [e.to_dict() for e in self.entities.values()]
+        }
+        with open(self.world_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    def create_entity(self, entity_type: str, x: int, y: int, name: str = "", description: str = "", **properties) -> Entity:
+        entity = Entity(entity_type, x, y, name, description, **properties)
+        self.entities[entity.id] = entity
+        self.add_event(f"创建了{name or entity_type}")
+        self._save()
+        return entity
+    
+    def update_entity(self, entity_id: str, **updates) -> Optional[Entity]:
+        if entity_id in self.entities:
+            entity = self.entities[entity_id]
+            for key, value in updates.items():
+                if hasattr(entity, key):
+                    setattr(entity, key, value)
+            self._save()
+            return entity
+        return None
+    
+    def delete_entity(self, entity_id: str) -> bool:
+        if entity_id in self.entities:
+            entity = self.entities[entity_id]
+            del self.entities[entity_id]
+            self.add_event(f"删除了{entity.name}")
+            self._save()
+            return True
+        return False
+    
+    def get_entity(self, entity_id: str) -> Optional[Entity]:
+        return self.entities.get(entity_id)
+    
+    def get_entities_at(self, x: int, y: int) -> List[Entity]:
+        return [e for e in self.entities.values() if e.x == x and e.y == y]
+    
+    def add_rule(self, rule: str):
+        if rule not in self.rules:
+            self.rules.append(rule)
+            self.add_event(f"添加了规则: {rule}")
+            self._save()
+    
+    def remove_rule(self, rule: str):
+        if rule in self.rules:
+            self.rules.remove(rule)
+            self._save()
+    
+    def add_event(self, message: str):
+        self.events.append({
+            "tick": self.tick,
+            "message": message,
+            "time": datetime.now().isoformat()
+        })
+        if len(self.events) > 100:
+            self.events = self.events[-100:]
+    
+    def tick_world(self):
+        self.tick += 1
+        self.execute_behaviors()
+        self._save()
+    
+    def execute_behaviors(self):
+        import random
+        
+        for entity in self.entities.values():
+            behavior = entity.get_active_behavior(self.tick)
+            
+            if not behavior:
+                continue
+                
+            if entity.type == "creature":
+                if behavior == "向四周探索" or behavior == "随机移动":
+                    dx = random.choice([-1, 0, 1])
+                    dy = random.choice([-1, 0, 1])
+                    if dx != 0 or dy != 0:
+                        new_x = max(-1000, min(1000, entity.x + dx))
+                        new_y = max(-1000, min(1000, entity.y + dy))
+                        if not any(e.x == new_x and e.y == new_y for e in self.entities.values()):
+                            entity.x = new_x
+                            entity.y = new_y
+                            
+                elif behavior == "休息" or behavior == "静止":
+                    pass
+                    
+            elif entity.type == "plant":
+                if behavior == "生长":
+                    pass
+                    
+            elif entity.type == "fire":
+                if behavior == "蔓延":
+                    if random.random() < 0.3:
+                        dx = random.choice([-1, 0, 1])
+                        dy = random.choice([-1, 0, 1])
+                        new_x = entity.x + dx
+                        new_y = entity.y + dy
+                        if not any(e.x == new_x and e.y == new_y for e in self.entities.values()):
+                            self.create_entity("fire", new_x, new_y, "火")
+    
+    def set_entity_behavior(self, entity_id: str, behavior: str) -> bool:
+        if entity_id in self.entities:
+            self.entities[entity_id].set_behavior(behavior)
+            self.add_event(f"设置{self.entities[entity_id].name}的行为: {behavior}")
+            self._save()
+            return True
+        return False
+    
+    def set_entity_temp_behavior(self, entity_id: str, behavior: str, duration: int) -> bool:
+        if entity_id in self.entities:
+            self.entities[entity_id].set_temp_behavior(behavior, duration, self.tick)
+            self.add_event(f"设置{self.entities[entity_id].name}临时行为: {behavior}({duration}tick)")
+            self._save()
+            return True
+        return False
+    
+    def add_type_skill(self, entity_type: str, skill: str) -> bool:
+        if entity_type not in self.TYPE_SKILLS:
+            self.TYPE_SKILLS[entity_type] = []
+        if skill not in self.TYPE_SKILLS[entity_type]:
+            self.TYPE_SKILLS[entity_type].append(skill)
+            self.add_event(f"{entity_type}类型获得技能: {skill}")
+            for entity in self.entities.values():
+                if entity.type == entity_type:
+                    entity.add_skill(skill)
+            self._save()
+            return True
+        return False
+    
+    def find_entity_by_name(self, name: str) -> Optional[Entity]:
+        name_lower = name.lower()
+        for entity in self.entities.values():
+            if entity.name.lower() == name_lower:
+                return entity
+            if name_lower in entity.name.lower():
+                return entity
+        return None
+    
+    def get_state(self) -> Dict:
+        return {
+            "tick": self.tick,
+            "entities": [e.to_dict() for e in self.entities.values()],
+            "rules": self.rules,
+            "events": self.events[-20:],
+            "stats": {
+                "entity_count": len(self.entities),
+                "rule_count": len(self.rules)
+            }
+        }
+    
+    def get_summary(self) -> str:
+        summary = f"世界时间: T={self.tick}\n"
+        summary += f"实体数量: {len(self.entities)}\n"
+        
+        by_type = {}
+        for e in self.entities.values():
+            by_type[e.type] = by_type.get(e.type, 0) + 1
+        
+        if by_type:
+            summary += "实体类型分布: " + ", ".join([f"{k}:{v}" for k, v in by_type.items()])
+        
+        if self.rules:
+            summary += f"\n当前规则数: {len(self.rules)}"
+        
+        return summary
+    
+    def get_entities_by_type(self, entity_type: str) -> List[Entity]:
+        return [e for e in self.entities.values() if e.type == entity_type]

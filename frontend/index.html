@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI World Builder - Infinite Canvas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0a0a0f;
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            color: #eee;
+        }
+        
+        #canvasContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+        
+        #canvasContainer.dragging {
+            cursor: grabbing;
+        }
+        
+        #worldCanvas {
+            display: block;
+        }
+        
+        .ui-overlay {
+            position: fixed;
+            z-index: 100;
+            pointer-events: none;
+        }
+        
+        .ui-overlay > * {
+            pointer-events: auto;
+        }
+        
+        .top-bar {
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+        }
+        
+        .title {
+            font-size: 24px;
+            color: #00d4ff;
+            text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-items {
+            display: flex;
+            gap: 25px;
+            font-size: 14px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-item .label {
+            color: #888;
+        }
+        
+        .status-item .value {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected {
+            background: #00ff88;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .left-panel {
+            top: 80px;
+            left: 20px;
+            bottom: 20px;
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .panel {
+            background: rgba(22, 33, 62, 0.9);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+        
+        .panel h3 {
+            color: #00d4ff;
+            margin-bottom: 12px;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            padding-bottom: 8px;
+        }
+        
+        #commandInput {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(15, 15, 35, 0.9);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        #commandInput:focus {
+            border-color: #00d4ff;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 10px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background: #00a8cc;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
+        }
+        
+        .btn.secondary {
+            background: rgba(68, 68, 68, 0.8);
+            color: #fff;
+        }
+        
+        .btn.secondary:hover {
+            background: rgba(85, 85, 85, 0.9);
+        }
+        
+        #log {
+            height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+            font-family: monospace;
+            background: rgba(15, 15, 35, 0.5);
+            border-radius: 4px;
+            padding: 8px;
+        }
+        
+        #log::-webkit-scrollbar {
+            width: 5px;
+        }
+        
+        #log::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+        
+        #log::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 3px;
+        }
+        
+        #log .log-item {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            color: #888;
+        }
+        
+        #log .log-item.user { color: #00d4ff; }
+        #log .log-item.ai { color: #00ff88; }
+        #log .log-item.system { color: #ffaa00; }
+        #log .log-item.error { color: #ff4444; }
+        
+        .legend {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .legend-color {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        
+        #entityInfo {
+            font-size: 13px;
+            color: #aaa;
+            min-height: 60px;
+        }
+        
+        .log-container {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1080px;
+            max-width: 90vw;
+            max-height: 150px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            padding: 10px 15px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            z-index: 200;
+        }
+
+        .log-container::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .log-container::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+
+        .log-container::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 3px;
+        }
+
+        .log-container .log-item {
+            padding: 3px 0;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .log-container .log-item.user { color: #00d4ff; }
+        .log-container .log-item.ai { color: #00ff88; }
+        .log-container .log-item.system { color: #ffaa00; }
+        .log-container .log-item.error { color: #ff4444; }
+
+        .coordinates {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(22, 33, 62, 0.9);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #888;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+        
+        .coordinates span {
+            color: #00d4ff;
+        }
+        
+        .zoom-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            background: rgba(22, 33, 62, 0.9);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            color: #00d4ff;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+        
+        .zoom-btn:hover {
+            background: rgba(0, 212, 255, 0.2);
+        }
+        
+        .center-btn {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 8px 15px;
+            background: rgba(22, 33, 62, 0.9);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            color: #00d4ff;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        
+        .center-btn:hover {
+            background: rgba(0, 212, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="canvasContainer">
+        <canvas id="worldCanvas"></canvas>
+    </div>
+    
+    <div class="ui-overlay top-bar">
+        <div class="title">🦞 AI World Builder</div>
+        <div class="status-items">
+            <div class="connection-status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="connectionStatus">未连接</span>
+            </div>
+            <div class="status-item">
+                <span class="label">时间:</span>
+                <span class="value" id="worldTick">T=0</span>
+            </div>
+            <div class="status-item">
+                <span class="label">实体:</span>
+                <span class="value" id="entityCount">0</span>
+            </div>
+            <div class="status-item">
+                <span class="label">规则:</span>
+                <span class="value" id="ruleCount">0</span>
+            </div>
+        </div>
+    </div>
+    
+    <button class="center-btn" onclick="resetView()">回到原点</button>
+    
+    <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoomIn()">+</button>
+        <button class="zoom-btn" onclick="zoomOut()">-</button>
+    </div>
+    
+    <div class="ui-overlay left-panel">
+        <div class="panel">
+            <h3>📝 指令输入</h3>
+            <input type="text" id="commandInput" placeholder="输入指令创造世界... (例如: 创造一个森林)">
+            <div class="controls">
+                <button class="btn" id="sendBtn">发送</button>
+                <button class="btn secondary" id="autoBtn">自动: 关</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h3>📋 世界图例</h3>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-color" style="background:#8B4513"></div> 陆地</div>
+                <div class="legend-item"><div class="legend-color" style="background:#228B22"></div> 植物</div>
+                <div class="legend-item"><div class="legend-color" style="background:#FF6347"></div> 生物</div>
+                <div class="legend-item"><div class="legend-color" style="background:#4682B4"></div> 建筑</div>
+                <div class="legend-item"><div class="legend-color" style="background:#FFD700"></div> 资源</div>
+                <div class="legend-item"><div class="legend-color" style="background:#1E90FF"></div> 水</div>
+                <div class="legend-item"><div class="legend-color" style="background:#FF4500"></div> 火</div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h3>📊 实体信息</h3>
+            <div id="entityInfo">鼠标悬停在实体上查看信息<br>拖拽画布移动视角<br>滚轮缩放</div>
+        </div>
+    </div>
+    
+    <div class="log-container" id="logContainer">
+        <div id="log"></div>
+    </div>
+    
+    <div class="coordinates">
+        世界坐标: (<span id="worldX">0</span>, <span id="worldY">0</span>) | 缩放: <span id="zoomLevel">1.0</span>x
+    </div>
+
+    <script>
+        const canvas = document.getElementById('worldCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('canvasContainer');
+        
+        const CELL_SIZE = 20;
+        
+        const COLORS = {
+            'land': '#8B4513',
+            'plant': '#228B22',
+            'creature': '#FF6347',
+            'building': '#4682B4',
+            'resource': '#FFD700',
+            'water': '#1E90FF',
+            'fire': '#FF4500',
+            'default': '#808080'
+        };
+        
+        const LABELS = {
+            'land': '地',
+            'plant': '植',
+            'creature': '生',
+            'building': '建',
+            'resource': '矿',
+            'water': '水',
+            'fire': '火',
+            'default': '？'
+        };
+        
+        let ws = null;
+        let worldState = { entities: [], tick: 0, rules: [] };
+        let autoRunning = false;
+        
+        let offsetX = 0;
+        let offsetY = 0;
+        let scale = 1;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render();
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        function worldToScreen(wx, wy) {
+            return {
+                x: (wx * CELL_SIZE * scale) + offsetX + canvas.width / 2,
+                y: (wy * CELL_SIZE * scale) + offsetY + canvas.height / 2
+            };
+        }
+        
+        function screenToWorld(sx, sy) {
+            return {
+                x: Math.floor((sx - offsetX - canvas.width / 2) / (CELL_SIZE * scale)),
+                y: Math.floor((sy - offsetY - canvas.height / 2) / (CELL_SIZE * scale))
+            };
+        }
+        
+        function render() {
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            drawGrid();
+            drawEntities();
+            drawOrigin();
+        }
+        
+        function drawGrid() {
+            const viewBounds = getViewBounds();
+            
+            const startX = Math.floor(viewBounds.minX / 5) * 5 - 5;
+            const endX = Math.ceil(viewBounds.maxX / 5) * 5 + 5;
+            const startY = Math.floor(viewBounds.minY / 5) * 5 - 5;
+            const endY = Math.ceil(viewBounds.maxY / 5) * 5 + 5;
+            
+            ctx.strokeStyle = 'rgba(30, 30, 50, 0.5)';
+            ctx.lineWidth = 1;
+            
+            for (let x = startX; x <= endX; x++) {
+                const screen = worldToScreen(x, 0);
+                ctx.beginPath();
+                ctx.moveTo(screen.x, 0);
+                ctx.lineTo(screen.x, canvas.height);
+                ctx.stroke();
+                
+                if (x % 10 === 0 && scale >= 0.5) {
+                    ctx.fillStyle = 'rgba(0, 212, 255, 0.3)';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(x, screen.x, canvas.height / 2 + offsetY + 20);
+                }
+            }
+            
+            for (let y = startY; y <= endY; y++) {
+                const screen = worldToScreen(0, y);
+                ctx.beginPath();
+                ctx.moveTo(0, screen.y);
+                ctx.lineTo(canvas.width, screen.y);
+                ctx.stroke();
+                
+                if (y % 10 === 0 && scale >= 0.5) {
+                    ctx.fillStyle = 'rgba(0, 212, 255, 0.3)';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(y, 20, screen.y);
+                }
+            }
+        }
+        
+        function drawEntities() {
+            const viewBounds = getViewBounds();
+            
+            for (const entity of worldState.entities) {
+                if (entity.x < viewBounds.minX - 1 || entity.x > viewBounds.maxX + 1 ||
+                    entity.y < viewBounds.minY - 1 || entity.y > viewBounds.maxY + 1) {
+                    continue;
+                }
+                
+                const screen = worldToScreen(entity.x, entity.y);
+                const size = CELL_SIZE * scale;
+                
+                const color = COLORS[entity.type] || COLORS.default;
+                const label = LABELS[entity.type] || LABELS.default;
+                
+                ctx.fillStyle = color;
+                ctx.fillRect(screen.x, screen.y, size - 1, size - 1);
+                
+                if (scale >= 0.5) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `${Math.max(8, 10 * scale)}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, screen.x + size / 2, screen.y + size / 2);
+                }
+            }
+        }
+        
+        function drawOrigin() {
+            const origin = worldToScreen(0, 0);
+            
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            ctx.moveTo(origin.x - 10, origin.y);
+            ctx.lineTo(origin.x + 10, origin.y);
+            ctx.moveTo(origin.x, origin.y - 10);
+            ctx.lineTo(origin.x, origin.y + 10);
+            ctx.stroke();
+            
+            if (scale >= 0.5) {
+                ctx.fillStyle = '#00d4ff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('(0,0)', origin.x + 15, origin.y - 10);
+            }
+        }
+        
+        function getViewBounds() {
+            const topLeft = screenToWorld(0, 0);
+            const bottomRight = screenToWorld(canvas.width, canvas.height);
+            return {
+                minX: topLeft.x,
+                minY: topLeft.y,
+                maxX: bottomRight.x,
+                maxY: bottomRight.y
+            };
+        }
+        
+        container.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            container.classList.add('dragging');
+        });
+        
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            container.classList.remove('dragging');
+        });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                offsetX += e.clientX - lastMouseX;
+                offsetY += e.clientY - lastMouseY;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                render();
+                updateCoordinates(e.clientX, e.clientY);
+            }
+        });
+        
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
+            
+            const mouseWorld = screenToWorld(e.clientX, e.clientY);
+            scale = newScale;
+            
+            const newScreen = worldToScreen(mouseWorld.x, mouseWorld.y);
+            offsetX += e.clientX - newScreen.x;
+            offsetY += e.clientY - newScreen.y;
+            
+            document.getElementById('zoomLevel').textContent = scale.toFixed(1);
+            render();
+        });
+        
+        function updateCoordinates(sx, sy) {
+            const world = screenToWorld(sx, sy);
+            document.getElementById('worldX').textContent = world.x;
+            document.getElementById('worldY').textContent = world.y;
+        }
+        
+        function zoomIn() {
+            scale = Math.min(5, scale * 1.2);
+            document.getElementById('zoomLevel').textContent = scale.toFixed(1);
+            render();
+        }
+        
+        function zoomOut() {
+            scale = Math.max(0.1, scale / 1.2);
+            document.getElementById('zoomLevel').textContent = scale.toFixed(1);
+            render();
+        }
+        
+        function resetView() {
+            offsetX = 0;
+            offsetY = 0;
+            scale = 1;
+            document.getElementById('zoomLevel').textContent = '1.0';
+            render();
+        }
+        
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            
+            ws.onopen = () => {
+                document.getElementById('statusDot').classList.add('connected');
+                document.getElementById('connectionStatus').textContent = '已连接';
+                addLog('system', '已连接到世界管理器');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('connectionStatus').textContent = '断开连接';
+                addLog('error', '连接断开，3秒后重连...');
+                setTimeout(connect, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                addLog('error', 'WebSocket错误');
+            };
+        }
+        
+        function handleMessage(data) {
+            switch(data.type) {
+                case 'welcome':
+                case 'state':
+                case 'state_update':
+                    worldState = data.world_state;
+                    render();
+                    updateStatus();
+                    break;
+                case 'command_result':
+                    if (data.result && data.result.success) {
+                        worldState = data.result.world_state || worldState;
+                        render();
+                        updateStatus();
+                    }
+                    addLog('ai', data.message || '执行完成');
+                    break;
+                case 'tick':
+                    worldState = data.data;
+                    render();
+                    updateStatus();
+                    addLog('system', data.message);
+                    break;
+                case 'info':
+                    addLog('system', data.message);
+                    break;
+                case 'error':
+                    addLog('error', data.message);
+                    break;
+            }
+        }
+        
+        function sendCommand(cmd) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('error', '未连接到服务器');
+                return;
+            }
+            
+            if (!cmd.trim()) return;
+            
+            addLog('user', cmd);
+            ws.send(JSON.stringify({ type: 'command', content: cmd }));
+            document.getElementById('commandInput').value = '';
+        }
+        
+        function toggleAuto() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            autoRunning = !autoRunning;
+            document.getElementById('autoBtn').textContent = `自动: ${autoRunning ? '开' : '关'}`;
+            ws.send(JSON.stringify({ type: autoRunning ? 'start_tick' : 'stop_tick' }));
+        }
+        
+        function updateStatus() {
+            document.getElementById('worldTick').textContent = `T=${worldState.tick}`;
+            document.getElementById('entityCount').textContent = worldState.entities.length;
+            document.getElementById('ruleCount').textContent = worldState.rules.length;
+        }
+        
+        function addLog(type, message) {
+            const log = document.getElementById('log');
+            const item = document.createElement('div');
+            item.className = `log-item ${type}`;
+            const prefix = type === 'user' ? '>' : type === 'ai' ? '<' : type === 'error' ? '!' : '#';
+            item.textContent = `${prefix} ${message}`;
+            log.insertBefore(item, log.firstChild);
+            
+            if (log.children.length > 20) {
+                log.removeChild(log.lastChild);
+            }
+        }
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging) {
+                updateCoordinates(e.clientX, e.clientY);
+                
+                const world = screenToWorld(e.clientX, e.clientY);
+                const entity = worldState.entities.find(en => en.x === world.x && en.y === world.y);
+                
+                if (entity) {
+                    document.getElementById('entityInfo').innerHTML = `
+                        <strong>${entity.name || entity.type}</strong><br>
+                        类型: ${entity.type}<br>
+                        世界坐标: (${entity.x}, ${entity.y})<br>
+                        ${entity.description || ''}
+                    `;
+                } else {
+                    document.getElementById('entityInfo').innerHTML = `
+                        鼠标悬停在实体上查看信息<br>
+                        拖拽画布移动视角<br>
+                        滚轮缩放<br>
+                        当前坐标: (${world.x}, ${world.y})
+                    `;
+                }
+            }
+        });
+        
+        document.getElementById('commandInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendCommand(e.target.value);
+            }
+        });
+        
+        document.getElementById('sendBtn').addEventListener('click', () => {
+            sendCommand(document.getElementById('commandInput').value);
+        });
+        
+        document.getElementById('autoBtn').addEventListener('click', toggleAuto);
+        
+        connect();
+    </script>
+</body>
+</html>
