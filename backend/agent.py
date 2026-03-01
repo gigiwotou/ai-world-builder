@@ -450,10 +450,11 @@ class Agent:
     "description": "描述"
 }}
 
-规则：
-- 只返回JSON，不要其他文字
+重要规则：
+- 如果用户提到"来到这个世界"、"出现在"、"创造"、"创建" → action必须是"create_entity"
+- "xxx来到这个世界" = 创建名为xxx的实体
 - 坐标默认为0,0
-- entity_type根据名称推断：人/男/女/小明/狼/狗 → creature，树/草/花 → plant
+- entity_type根据名称推断：人/男/女/小明/大美丽/狼/狗 → creature，树/草/花 → plant
 
 只返回JSON！"""
 
@@ -481,9 +482,19 @@ class Agent:
         action = intent_data.get("action", "none")
         print(f"[AI] 意图分析: action={action}, data={intent_data}", flush=True)
         
+        if action != "create_entity":
+            print(f"[AI] action不是create_entity，跳过", flush=True)
+            return []
+        
         tool_calls = []
         
         if action == "create_entity":
+            entity_name = intent_data.get("entity_name", "")
+            print(f"[AI] 准备创建实体: name={entity_name}", flush=True)
+            
+            if not entity_name:
+                print(f"[AI] entity_name为空，跳过", flush=True)
+                return []
             tool_calls.append({
                 "function": {
                     "name": "create_entity",
@@ -591,7 +602,12 @@ class Agent:
         
         print(f"[AI] 执行了 {len(results)} 个动作", flush=True)
         for r in results:
-            print(f"  - {r['tool']}: {r['result'].get('name', r['result'].get('id', 'OK'))}", flush=True)
+            result_data = r['result']
+            if result_data.get("success"):
+                entity_data = result_data.get("result", {})
+                print(f"  - {r['tool']}: {entity_data.get('name', entity_data.get('id', 'OK'))}", flush=True)
+            else:
+                print(f"  - {r['tool']}: 失败 - {result_data.get('error', 'unknown')}", flush=True)
         
         return {
             "success": True,

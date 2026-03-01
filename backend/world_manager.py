@@ -79,18 +79,49 @@ class WorldManager:
             x = int(x)
             y = int(y)
         except:
+            print(f"[World] 创建失败：坐标无效 x={x}, y={y}", flush=True)
             return None
         
         if x is None or y is None:
+            print(f"[World] 创建失败：坐标为None", flush=True)
             return None
         
-        for e in self.entities.values():
-            if e.x == x and e.y == y:
-                return None
+        # 检查位置是否被占用，如果被占用则寻找附近空位
+        original_x, original_y = x, y
+        max_search = 10  # 最多搜索10格
+        
+        while max_search > 0:
+            found = False
+            for e in self.entities.values():
+                if int(e.x) == x and int(e.y) == y:
+                    found = True
+                    break
+            
+            if not found:
+                break  # 找到空位
+            
+            # 尝试下一个位置（顺时针螺旋搜索）
+            if x == original_x and y == original_y:
+                x += 1
+            elif x >= original_x and y < original_y + (x - original_x):
+                y += 1
+            elif x > original_x and y >= original_y + (x - original_x):
+                x -= 1
+            else:
+                y -= 1
+            max_search -= 1
+        
+        if max_search == 0:
+            print(f"[World] 创建失败：附近没有空位", flush=True)
+            return None
+        
+        if x != original_x or y != original_y:
+            print(f"[World] 位置({original_x},{original_y})被占用，自动选择位置({x},{y})", flush=True)
         
         entity = Entity(entity_type, x, y, name, description, **properties)
         self.entities[entity.id] = entity
         self.add_event(f"创建了{name or entity_type}")
+        print(f"[World] 创建实体成功: {entity.name} (id={entity.id}) at ({x},{y})", flush=True)
         self._save()
         return entity
     
