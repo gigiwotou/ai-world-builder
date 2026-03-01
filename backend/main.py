@@ -67,7 +67,7 @@ def tick_loop():
     while running:
         try:
             result = agent.auto_tick()
-            if result.get("success"):
+            if result.get("success") and result.get("world_state"):
                 asyncio.run(manager.broadcast({
                     "type": "tick",
                     "data": result.get("world_state"),
