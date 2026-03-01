@@ -211,7 +211,7 @@
         #entityInfo {
             font-size: 13px;
             color: #aaa;
-            min-height: 60px;
+            min-height: 120px;
         }
         
         #log {
@@ -735,10 +735,21 @@
                 const entity = worldState.entities.find(en => en.x === world.x && en.y === world.y);
                 
                 if (entity) {
+                    let skillsHtml = '';
+                    if (entity.skills && entity.skills.length > 0) {
+                        skillsHtml = `<br>技能: ${entity.skills.join(', ')}`;
+                    }
+                    let behaviorHtml = '';
+                    if (entity.behavior) {
+                        behaviorHtml = `<br>行为: ${entity.behavior}`;
+                    }
+                    if (entity.temp_behavior && entity.temp_behavior.behavior) {
+                        behaviorHtml += ` (临时: ${entity.temp_behavior.behavior}, 剩${entity.temp_behavior.duration - (worldState.tick - entity.temp_behavior.start_tick)}tick)`;
+                    }
                     document.getElementById('entityInfo').innerHTML = `
                         <strong>${entity.name || entity.type}</strong><br>
                         类型: ${entity.type}<br>
-                        世界坐标: (${entity.x}, ${entity.y})<br>
+                        世界坐标: (${entity.x}, ${entity.y})${skillsHtml}${behaviorHtml}<br>
                         ${entity.description || ''}
                     `;
                 } else {
