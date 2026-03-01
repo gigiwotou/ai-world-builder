@@ -151,6 +151,12 @@ class WorldManager:
         creatures = [e for e in self.entities.values() if e.type == "creature"]
         
         for i, entity in enumerate(creatures):
+            try:
+                entity.x = int(entity.x)
+                entity.y = int(entity.y)
+            except:
+                continue
+            
             behavior = entity.get_active_behavior(self.tick)
             
             if not behavior:
