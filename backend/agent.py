@@ -10,6 +10,27 @@ from .memory import Memory
 from .transcript import Transcript
 from .skills import SkillRegistry, SkillContext, SkillResult
 
+# 不同实体类型可用的技能配置
+ENTITY_TYPE_SKILLS = {
+    "creature": [
+        {"skill": "move_entity", "desc": "移动到(x,y)"},
+        {"skill": "set_behavior", "desc": "设置行为(向四周探索/随机移动/休息/觅食/攻击/逃跑)"},
+        {"skill": "explore_terrain", "desc": "探索(x,y)周围地形"},
+    ],
+    "plant": [
+        {"skill": "grow", "desc": "生长(扩大范围)"},
+    ],
+    "land": [],
+    "building": [
+        {"skill": "set_behavior", "desc": "设置行为"},
+    ],
+}
+
+# 通用技能（所有实体可用）
+GLOBAL_SKILLS = [
+    {"skill": "create_entity", "desc": "创建新实体到世界"},
+]
+
 
 class Agent:
     def __init__(self, llm: LLMAdapter, world: WorldManager, memory: Memory = None, transcript: Transcript = None):
@@ -57,6 +78,14 @@ class Agent:
         
         skills = self.skill_registry.get_all()
         print(f"[Agent] 已加载 {len(skills)} 个Skills: {list(skills.keys())}", flush=True)
+    
+    def _get_entity_skills(self, entity_type: str) -> str:
+        """获取指定实体类型的可用技能列表"""
+        skills = ENTITY_TYPE_SKILLS.get(entity_type, [])
+        if not skills:
+            return "无可用操作"
+        lines = [f"{s['skill']}: {s['desc']}" for s in skills]
+        return "\n".join(lines)
     
     def _get_skill_prompt(self) -> str:
         """生成Skill提示"""
@@ -377,33 +406,25 @@ class Agent:
             props_str = ""
             if entity_props:
                 props_str = f", 属性: {entity_props}"
-            skills_str = f", 技能: {', '.join(entity_skills)}" if entity_skills else ""
+            skills_str = f", 技能: {', '.join(entity_skills[:3])}" if entity_skills else ""
             gender_str = f", 性别: {gender}" if gender else ""
             
-            prompt = f"""你是实体「{entity_name}」的AI控制器。
+            # 获取该实体类型可用的技能
+            available_skills = self._get_entity_skills(entity_type)
+            
+            prompt = f"""你是「{entity_name}」，位于({entity_x},{entity_y})。
+状态: {entity_behavior}{props_str}{skills_str}{gender_str}
+周围: {terrain_info}
+附近: {nearby_info if nearby_info != "附近无其他实体" else "无"}
 
-【实体信息】
-- 名称: {entity_name}
-- 类型: {entity_type}
-- 位置: ({entity_x}, {entity_y})
-- 行为: {entity_behavior}{props_str}{skills_str}{gender_str}
+可用操作:
+{available_skills}
 
-【周围地形】
-{terrain_info}
+返回JSON格式（只返回JSON，不要其他文字）:
+{{"actions": [{{"skill": "操作名", "params": {{}}}}]}}
+无操作: {{"actions": []}}"""
 
-【附近实体】
-{nearby_info}
-
-【可用技能】
-{self._get_skill_prompt()}
-
-请决定「{entity_name}」这个时间单位要做什么。
-重要：必须返回纯JSON格式，不要有markdown代码块！
-格式示例：
-{{"actions": [{{"skill": "move_entity", "params": {{"entity_id": "{entity_id}", "x": 0, "y": 1}}}}]}}
-{{"actions": []}}"""
-
-            system_prompt = "你是一个游戏实体的AI控制器，控制实体的行为和决策。"
+            system_prompt = "你是游戏AI控制器，只返回纯JSON。"
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
