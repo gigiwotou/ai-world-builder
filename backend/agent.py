@@ -27,6 +27,9 @@ class Agent:
     
     def _load_skills(self):
         """加载所有Skills"""
+        # 先清空注册表
+        self.skill_registry.clear()
+        
         # 导入会触发register
         from .skills import (
             entity_skills,
@@ -51,7 +54,8 @@ class Agent:
         skills_dir = os.path.join(os.path.dirname(__file__), "skills")
         self.skill_registry.load_from_directory(skills_dir)
         
-        print(f"[Agent] 已加载 {len(self.skill_registry.get_all())} 个Skills", flush=True)
+        skills = self.skill_registry.get_all()
+        print(f"[Agent] 已加载 {len(skills)} 个Skills: {list(skills.keys())}", flush=True)
     
     def _get_skill_prompt(self) -> str:
         """生成Skill提示"""
@@ -108,6 +112,11 @@ class Agent:
     def _parse_skill_call(self, command: str) -> Optional[Dict]:
         """让LLM解析用户指令，返回Skill调用"""
         
+        skills = self.skill_registry.get_all()
+        if not skills:
+            print(f"[AI] 错误: 没有已注册的Skills!", flush=True)
+            return None
+        
         skills_context = self._get_skill_prompt()
         
         prompt = f"""分析用户指令，返回JSON格式的Skill调用。
@@ -130,28 +139,49 @@ class Agent:
 - "X的死敌Y出现了" → entity_name/name 是 Y
 - 只返回JSON，不要其他文字！"""
 
+        print(f"[AI] 发送解析请求到LLM...", flush=True)
         response = self.llm.chat([{"role": "user", "content": prompt}])
         
         if "error" in response:
-            print(f"[AI] 解析失败: {response['error']}", flush=True)
+            print(f"[AI] LLM错误: {response['error']}", flush=True)
             return None
         
         content = response.get("message", {}).get("content", "")
-        print(f"[AI] LLM响应: {content[:200]}...", flush=True)
+        print(f"[AI] LLM原始响应:\n{content[:500]}...", flush=True)
         
-        # 提取JSON
+        # 尝试提取JSON
+        import re
+        
+        # 提取 {...}
         json_match = re.search(r'\{[\s\S]*\}', content)
+        
         if not json_match:
             print(f"[AI] 无法提取JSON", flush=True)
             return None
         
         try:
-            intent = json.loads(json_match.group())
+            json_str = json_match.group()
+            intent = json.loads(json_str)
             skill_name = intent.get("skill", "")
-            print(f"[AI] 解析: skill={skill_name}, params={intent.get('params', {})}", flush=True)
+            
+            if not skill_name:
+                print(f"[AI] JSON中没有skill字段: {intent}", flush=True)
+                return None
+            
+            print(f"[AI] 解析成功: skill={skill_name}, params={intent.get('params', {})}", flush=True)
             return intent
         except json.JSONDecodeError as e:
             print(f"[AI] JSON解析失败: {e}", flush=True)
+            return None
+        
+            if not skill_name:
+                print(f"[AI] JSON中没有skill字段: {intent}", flush=True)
+                return None
+            
+            print(f"[AI] 解析成功: skill={skill_name}, params={intent.get('params', {})}", flush=True)
+            return intent
+        except json.JSONDecodeError as e:
+            print(f"[AI] JSON解析失败: {e}, 内容: {json_str[:200] if 'json_str' in dir() else 'N/A'}", flush=True)
             return None
     
     def _execute_skill(self, intent: Dict) -> Dict[str, Any]:
