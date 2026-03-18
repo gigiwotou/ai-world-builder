@@ -196,23 +196,23 @@ class Agent:
             # 如果还是没有tool_calls，尝试从自然语言中提取创建实体的意图
             if not tool_calls and content:
                 import re
+                
+                # 从原始用户命令中提取，而不是从LLM响应
+                command = messages[-1].get("content", "") if messages else ""
+                
                 # 匹配各种创建实体的模式
                 patterns = [
-                    # 匹配"xxx是一个xx"或"xxx叫xxx"或"xxx名为xxx"
-                    r'([^\s，。,]{2,4})(?:是一个?|叫|名为|是)([男女雄雌人类生物动物]+)',
+                    # 匹配"小明是个男人" "小明是一个人类"
+                    r'([^\s，。,，。]{1,4})(?:是|叫|名为)(?:个?|一个?)([男女雄雌人人类生物动物植物])',
                     # 匹配"创建xxx"模式
-                    r'创建.*?([^\s，。,]{2,4})(?:类型|是)([^\s，。,]+)',
-                    # 匹配"添加xxx"模式
-                    r'添加.*?([^\s，。,]{2,4})',
-                    # 匹配"xxx来到这个世界"模式（2-4个字符的名字）
-                    r'([^\s，。,]{2,4})来到?这个世界',
-                    # 匹配"xxx进入"模式
-                    r'([^\s，。,]{2,4})进入?世界',
+                    r'(?:创建|添加)(?:一个?)?([^\s，。,，]{1,4})',
+                    # 匹配"xxx来到这个世界"模式
+                    r'([^\s，。,，]{1,4})(?:来到|出现|进入)',
                     # 匹配"有个xxx叫xxx"模式
-                    r'有.*?([^\s，。,]{2,4})叫([^\s，。,]+)',
+                    r'(?:有|发现)(?:一只?|个?)?([^\s，。,，]{1,4})(?:叫|名)',
                 ]
                 for pattern in patterns:
-                    match = re.search(pattern, content)
+                    match = re.search(pattern, command)
                     if match:
                         name = match.group(1)
                         entity_type = "creature"
@@ -231,10 +231,6 @@ class Agent:
                             elif "房" in type_str or "屋" in type_str or "建筑" in type_str:
                                 entity_type = "building"
                         
-                        # 对于"来到这个世界"等模式，默认是 creature
-                        if "来到" in match.group(0) or "进入" in match.group(0):
-                            entity_type = "creature"
-                        
                         tool_calls.append({
                             "function": {
                                 "name": "create_entity",
@@ -246,12 +242,8 @@ class Agent:
                                 }
                             }
                         })
-                        print(f"[AI] 从content推断创建实体: {name} ({entity_type})", flush=True)
+                        print(f"[AI] 从命令推断创建实体: {name} ({entity_type})", flush=True)
                         break
-                else:
-                    # 如果所有正则都没匹配，打印调试信息
-                    if content and len(content) > 10:
-                        print(f"[AI] 无法从content解析实体，content前100字符: {content[:100]}", flush=True)
             
             results = []
             for tool_call in tool_calls:
