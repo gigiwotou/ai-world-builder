@@ -281,20 +281,79 @@ class Agent:
             pass
     
     def auto_tick(self) -> Dict[str, Any]:
-        """自动Tick"""
-        world_state = self.world.get_state()
-        self.world.tick_world()
-        
-        # 探索生物周围地形
-        for entity in world_state["entities"]:
-            if entity["type"] == "creature":
-                self._explore_surrounding_terrain(entity["id"])
-        
-        if not world_state["entities"]:
-            return {"success": True, "world_state": self.world.get_state()}
-        
-        # 让AI决定做什么
-        return {
-            "success": True,
-            "world_state": self.world.get_state()
-        }
+        """自动Tick - 让AI决定每个tick做什么"""
+        try:
+            # 推进世界时间
+            self.world.tick_world()
+            
+            world_state = self.world.get_state()
+            tick = world_state["tick"]
+            
+            # 探索生物周围地形
+            for entity in world_state["entities"]:
+                if entity["type"] == "creature":
+                    self._explore_surrounding_terrain(entity["id"])
+            
+            if not world_state["entities"]:
+                return {"success": True, "tick": tick, "world_state": world_state}
+            
+            # 让AI决定这个tick做什么
+            entities_summary = "\n".join([
+                f"- {e['name']}({e['type']}) at ({e['x']},{e['y']}): {e.get('behavior', '无')}"
+                for e in world_state["entities"]
+            ])
+            
+            prompt = f"""这是世界的第 {tick} 个时间单位。
+当前世界状态：
+{entities_summary}
+
+请决定需要执行什么操作来推进世界发展。
+
+{self._get_skill_prompt()}
+
+返回JSON（可以是多个skill调用）：
+{{
+    "actions": [
+        {{"skill": "skill名称", "params": {{}}}},
+        ...
+    ]
+}}
+
+如果没有需要执行的操作，返回空数组：{{"actions": []}}"""
+
+            response = self.llm.chat([{"role": "user", "content": prompt}])
+            
+            if "error" in response:
+                return {"success": True, "tick": tick, "world_state": self.world.get_state()}
+            
+            content = response.get("message", {}).get("content", "")
+            
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    actions = data.get("actions", [])
+                    
+                    if actions:
+                        print(f"[AI] Tick {tick} 执行 {len(actions)} 个操作", flush=True)
+                    
+                    for action in actions:
+                        skill_name = action.get("skill")
+                        params = action.get("params", {})
+                        if skill_name:
+                            self._execute_skill({"skill": skill_name, "params": params})
+                    
+                except:
+                    pass
+            
+            return {
+                "success": True,
+                "tick": self.world.tick,
+                "world_state": self.world.get_state()
+            }
+            
+        except Exception as e:
+            print(f"[AI] auto_tick错误: {e}", flush=True)
+            return {"success": False, "error": str(e)}
