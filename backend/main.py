@@ -174,6 +174,7 @@ if __name__ == "__main__":
     print("=" * 50, flush=True)
     print("AI World Builder 启动中...", flush=True)
     print(f"模型: {config.get('model')}", flush=True)
+    print(f"Tick间隔: {config.get('tick_interval', 5)}秒", flush=True)
     print(f"服务地址: http://localhost:{config.get('port', 8000)}", flush=True)
     print("请在浏览器打开上述地址", flush=True)
     print("=" * 50, flush=True)
