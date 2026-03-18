@@ -174,6 +174,11 @@ class Agent:
             print(f"[AI] JSON解析失败: {e}", flush=True)
             return None
         
+        try:
+            json_str = json_match.group()
+            intent = json.loads(json_str)
+            skill_name = intent.get("skill", "")
+            
             if not skill_name:
                 print(f"[AI] JSON中没有skill字段: {intent}", flush=True)
                 return None
@@ -181,7 +186,7 @@ class Agent:
             print(f"[AI] 解析成功: skill={skill_name}, params={intent.get('params', {})}", flush=True)
             return intent
         except json.JSONDecodeError as e:
-            print(f"[AI] JSON解析失败: {e}, 内容: {json_str[:200] if 'json_str' in dir() else 'N/A'}", flush=True)
+            print(f"[AI] JSON解析失败: {e}", flush=True)
             return None
     
     def _execute_skill(self, intent: Dict) -> Dict[str, Any]:
@@ -274,7 +279,7 @@ class Agent:
         return []
     
     def _explore_surrounding_terrain(self, entity_id: str):
-        """探索周围地形"""
+        """探索周围地形 - 非阻塞版本"""
         entity = self.world.get_entity(entity_id)
         if not entity or entity.x is None:
             return
@@ -283,32 +288,18 @@ class Agent:
         if not unexplored:
             return
         
-        prompt = f"""实体 {entity.name} 位于 ({entity.x},{entity.y})，周围未探索: {unexplored}
-请决定这些位置的地形类型：陆地、山川、河流、海洋
-遵循：大陆相连、海洋大片、河流绵长、山川雄伟
-
-返回JSON:
-{{
-    "decisions": [
-        {{"x": 1, "y": 1, "terrain": "陆地"}}
-    ]
-}}"""
-
-        response = self.llm.chat([{"role": "user", "content": prompt}])
+        # 直接用随机地形，不阻塞等待LLM
+        import random
+        terrains = ["陆地", "陆地", "陆地", "山川", "河流", "海洋"]
+        count = 0
+        for pos in unexplored[:3]:  # 只探索最多3个位置
+            x, y = pos
+            terrain = random.choice(terrains)
+            self.world.explore_terrain(x, y, terrain)
+            count += 1
         
-        if "error" in response:
-            return
-        
-        content = response.get("message", {}).get("content", "")
-        try:
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                data = json.loads(json_match.group())
-                for d in data.get("decisions", []):
-                    self.world.explore_terrain(d["x"], d["y"], d["terrain"])
-                print(f"[AI] 探索了 {len(data.get('decisions', []))} 个位置", flush=True)
-        except:
-            pass
+        if count > 0:
+            print(f"[AI] {entity.name} 周围探索了 {count} 个位置", flush=True)
     
     def auto_tick(self) -> Dict[str, Any]:
         """自动Tick - 让AI决定每个tick做什么"""
