@@ -356,8 +356,14 @@ class WorldManager:
         return self.terrain_manager.get_surrounding_9(x, y)
     
     def get_move_rules_for_entity(self, entity_type: str, skills: List[str]) -> List[str]:
-        # 这是一个占位符，实际规则从LLM获取
-        return self.agent_instance._get_move_rules_from_llm(entity_type, skills)
+        # 默认规则，LLM决定后可覆盖
+        default_rules = {
+            "creature": ["陆地", "山川"],
+            "plant": ["陆地"],
+            "water": ["河流", "海洋"],
+            "fire": ["陆地", "山川", "河流", "海洋"],
+        }
+        return default_rules.get(entity_type, ["陆地", "山川"])
 
     def get_state(self) -> Dict:
         terrain_data = {}
