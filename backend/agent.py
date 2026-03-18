@@ -197,53 +197,56 @@ class Agent:
             if not tool_calls and content:
                 import re
                 
-                # 从原始用户命令中提取，而不是从LLM响应
+                # 从原始用户命令中提取
                 command = messages[-1].get("content", "") if messages else ""
                 
-                # 匹配各种创建实体的模式
-                patterns = [
-                    # 匹配"小明是个男人" "小明是一个人类"
-                    r'([^\s，。,，。]{1,4})(?:是|叫|名为)(?:个?|一个?)([男女雄雌人人类生物动物植物])',
-                    # 匹配"创建xxx"模式
-                    r'(?:创建|添加)(?:一个?)?([^\s，。,，]{1,4})',
-                    # 匹配"xxx来到这个世界"模式
-                    r'([^\s，。,，]{1,4})(?:来到|出现|进入)',
-                    # 匹配"有个xxx叫xxx"模式
-                    r'(?:有|发现)(?:一只?|个?)?([^\s，。,，]{1,4})(?:叫|名)',
-                ]
-                for pattern in patterns:
-                    match = re.search(pattern, command)
+                found_entity = None
+                
+                # 模式1: "X的死敌/敌人,Y出现了" - Y是新实体
+                match = re.search(r'[的之]?(?:死敌|敌人|朋友|伙伴)[，,]([^，。,\s]{1,6})(?:出现|来到|诞生|进入)', command)
+                if match:
+                    found_entity = {"name": match.group(1), "type": "creature"}
+                
+                # 模式2: "出现了X" "诞生了X" - X是新实体
+                if not found_entity:
+                    match = re.search(r'(?:出现|诞生|创建|添加|有了|发现)(?:一个?)?([^，。,\s]{1,6})', command)
                     if match:
                         name = match.group(1)
-                        entity_type = "creature"
-                        
-                        # 检查是否有第二组（类型信息）
-                        if match.lastindex and match.lastindex >= 2:
-                            type_str = match.group(2)
-                            if "人" in type_str or "男" in type_str or "女" in type_str or "人类" in type_str:
-                                entity_type = "creature"
-                            elif "树" in type_str or "草" in type_str or "花" in type_str or "植物" in type_str:
-                                entity_type = "plant"
-                            elif "水" in type_str or "河" in type_str or "海" in type_str:
-                                entity_type = "water"
-                            elif "火" in type_str:
-                                entity_type = "fire"
-                            elif "房" in type_str or "屋" in type_str or "建筑" in type_str:
-                                entity_type = "building"
-                        
-                        tool_calls.append({
-                            "function": {
-                                "name": "create_entity",
-                                "arguments": {
-                                    "entity_type": entity_type,
-                                    "name": name,
-                                    "x": 0,
-                                    "y": 0
-                                }
+                        # 排除一些无关词汇
+                        if name and len(name) >= 2 and not name.startswith("世界"):
+                            found_entity = {"name": name, "type": "creature"}
+                
+                # 模式3: "X来到/出现这个世界" - X是新实体
+                if not found_entity:
+                    match = re.search(r'([^，。,\s]{1,6})(?:来到|出现|进入|诞生)(?:这个)?世界', command)
+                    if match:
+                        found_entity = {"name": match.group(1), "type": "creature"}
+                
+                # 模式4: "有个X叫Y" - Y是新实体
+                if not found_entity:
+                    match = re.search(r'(?:有|发现)(?:一只?|个)?(?:叫|名叫)([^，。,\s]{1,6})', command)
+                    if match:
+                        found_entity = {"name": match.group(1), "type": "creature"}
+                
+                # 模式5: "X是Y" - X是新实体
+                if not found_entity:
+                    match = re.search(r'^([^，。,\s]{1,6})(?:是|叫|名为)(?:一个?|个?)([男女雄雌人人类生物])', command)
+                    if match:
+                        found_entity = {"name": match.group(1), "type": "creature"}
+                
+                if found_entity:
+                    tool_calls.append({
+                        "function": {
+                            "name": "create_entity",
+                            "arguments": {
+                                "entity_type": found_entity["type"],
+                                "name": found_entity["name"],
+                                "x": 0,
+                                "y": 0
                             }
-                        })
-                        print(f"[AI] 从命令推断创建实体: {name} ({entity_type})", flush=True)
-                        break
+                        }
+                    })
+                    print(f"[AI] 从命令推断创建实体: {found_entity['name']} ({found_entity['type']})", flush=True)
             
             results = []
             for tool_call in tool_calls:
