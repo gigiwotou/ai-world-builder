@@ -26,15 +26,27 @@ class Agent:
         self._load_skills()
     
     def _load_skills(self):
-        """加载Skills"""
-        from . import skills as skills_module
-        from .skills import entity_skills, terrain_skills
-        
+        """加载所有Skills"""
         # 导入会触发register
+        from .skills import (
+            entity_skills,
+            terrain_skills,
+            behavior_skills,
+            analyze_skills,
+            tick_skills,
+            save_skills,
+            move_rules_skills
+        )
+        
         entity_skills.register()
         terrain_skills.register()
+        behavior_skills.register()
+        analyze_skills.register()
+        tick_skills.register()
+        save_skills.register()
+        move_rules_skills.register()
         
-        # 从目录动态加载
+        # 从目录动态加载（加载额外的.py文件）
         import os
         skills_dir = os.path.join(os.path.dirname(__file__), "skills")
         self.skill_registry.load_from_directory(skills_dir)
