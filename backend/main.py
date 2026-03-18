@@ -7,11 +7,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from typing import Dict, Set
 
+print("[Main] 开始加载模块...", flush=True)
+
 from .llm_adapter import LLMAdapter
 from .world_manager import WorldManager
 from .agent import Agent
 from .memory import Memory
 from .transcript import Transcript
+
+print("[Main] 模块加载完成", flush=True)
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -65,9 +69,12 @@ manager = ConnectionManager()
 running = True
 
 def tick_loop():
+    print("[Tick] Tick循环已启动", flush=True)
     while running:
         try:
+            print(f"[Tick] 执行auto_tick...", flush=True)
             result = agent.auto_tick()
+            print(f"[Tick] auto_tick完成: {result}", flush=True)
             if result.get("success") and result.get("world_state"):
                 asyncio.run(manager.broadcast({
                     "type": "tick",
@@ -75,13 +82,16 @@ def tick_loop():
                     "message": f"T={result['world_state']['tick']} 自动推进完成"
                 }))
         except Exception as e:
-            print(f"Tick error: {e}")
+            print(f"Tick error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
         import time
         time.sleep(config.get("tick_interval", 5))
 
 import threading
 tick_thread = threading.Thread(target=tick_loop, daemon=True)
 tick_thread.start()
+print(f"[Main] Tick线程已启动，间隔{config.get('tick_interval', 5)}秒", flush=True)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
