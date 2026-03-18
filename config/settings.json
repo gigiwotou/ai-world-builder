@@ -1,6 +1,6 @@
 {
   "provider": "ollama",
-  "model": "qwen3:1.7b",
+  "model": "qwen3.5:2b",
   "base_url": "http://localhost:11434",
   "api_key": "",
   "tick_interval": 5,

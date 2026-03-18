@@ -591,8 +591,13 @@
         function drawTerrain() {
             const viewBounds = getViewBounds();
             const terrain = worldState.terrain || {};
+            const entityPositions = new Set(
+                worldState.entities.map(e => `${e.x},${e.y}`)
+            );
             
             for (const [key, terrainType] of Object.entries(terrain)) {
+                if (entityPositions.has(key)) continue;
+                
                 const [x, y] = key.split(',').map(Number);
                 if (x < viewBounds.minX - 1 || x > viewBounds.maxX + 1 ||
                     y < viewBounds.minY - 1 || y > viewBounds.maxY + 1) {
