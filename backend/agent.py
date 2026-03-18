@@ -20,6 +20,7 @@ class Agent:
         self.transcript = transcript
         self.conversation_history: List[Dict] = []
         self.skill_history: List[Dict] = []
+        self.current_entity_index: int = 0
         
         # 加载Skills
         self.skill_registry = SkillRegistry()
@@ -302,7 +303,7 @@ class Agent:
             print(f"[AI] {entity.name} 周围探索了 {count} 个位置", flush=True)
     
     def auto_tick(self) -> Dict[str, Any]:
-        """自动Tick - 让AI决定每个tick做什么"""
+        """自动Tick - 每次只tick一个实体，按顺序循环"""
         try:
             # 推进世界时间
             self.world.tick_world()
@@ -310,65 +311,24 @@ class Agent:
             world_state = self.world.get_state()
             tick = world_state["tick"]
             
+            entities = world_state["entities"]
+            if not entities:
+                return {"success": True, "tick": tick, "world_state": world_state}
+            
             # 探索生物周围地形
-            for entity in world_state["entities"]:
+            for entity in entities:
                 if entity["type"] == "creature":
                     self._explore_surrounding_terrain(entity["id"])
             
-            if not world_state["entities"]:
-                return {"success": True, "tick": tick, "world_state": world_state}
+            # 获取当前要处理的实体
+            if self.current_entity_index >= len(entities):
+                self.current_entity_index = 0
             
-            # 让AI决定这个tick做什么
-            entities_summary = "\n".join([
-                f"- {e['name']}({e['type']}) at ({e['x']},{e['y']}): {e.get('behavior', '无')}"
-                for e in world_state["entities"]
-            ])
+            entity = entities[self.current_entity_index]
+            self.current_entity_index += 1
             
-            prompt = f"""这是世界的第 {tick} 个时间单位。
-当前世界状态：
-{entities_summary}
-
-请决定需要执行什么操作来推进世界发展。
-
-{self._get_skill_prompt()}
-
-返回JSON（可以是多个skill调用）：
-{{
-    "actions": [
-        {{"skill": "skill名称", "params": {{}}}}
-    ]
-}}
-
-如果没有需要执行的操作，返回空数组：{{"actions": []}}"""
-
-            print(f"[AI] Tick {tick} 发送LLM请求...", flush=True)
-            response = self.llm.chat([{"role": "user", "content": prompt}])
-            print(f"[AI] Tick {tick} 收到LLM响应", flush=True)
-            
-            if "error" in response:
-                return {"success": True, "tick": tick, "world_state": self.world.get_state()}
-            
-            content = response.get("message", {}).get("content", "")
-            
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            
-            if json_match:
-                try:
-                    data = json.loads(json_match.group())
-                    actions = data.get("actions", [])
-                    
-                    if actions:
-                        print(f"[AI] Tick {tick} 执行 {len(actions)} 个操作", flush=True)
-                    
-                    for action in actions:
-                        skill_name = action.get("skill")
-                        params = action.get("params", {})
-                        if skill_name:
-                            self._execute_skill({"skill": skill_name, "params": params})
-                    
-                except:
-                    pass
+            # 为当前实体执行tick
+            self.entity_tick(entity, tick)
             
             return {
                 "success": True,
@@ -379,3 +339,110 @@ class Agent:
         except Exception as e:
             print(f"[AI] auto_tick错误: {e}", flush=True)
             return {"success": False, "error": str(e)}
+    
+    def entity_tick(self, entity: Dict, tick: int) -> None:
+        """为单个实体执行tick决策"""
+        try:
+            entity_name = entity.get("name", "未知")
+            entity_type = entity.get("type", "unknown")
+            entity_id = entity.get("id", "")
+            entity_x = entity.get("x", 0)
+            entity_y = entity.get("y", 0)
+            entity_behavior = entity.get("behavior", "")
+            
+            # 获取该实体周围的地形
+            nearby_terrain = []
+            for dx in range(-3, 4):
+                for dy in range(-3, 4):
+                    nx, ny = entity_x + dx, entity_y + dy
+                    terrain = self.world.get_terrain_at(nx, ny)
+                    if terrain and terrain != "未探索":
+                        nearby_terrain.append(f"({nx},{ny}):{terrain}")
+            
+            terrain_info = ", ".join(nearby_terrain) if nearby_terrain else "周围无已探索地形"
+            
+            # 查找附近的其他实体
+            nearby_entities = []
+            for e in self.world.entities.values():
+                if e.id != entity_id and abs(e.x - entity_x) <= 5 and abs(e.y - entity_y) <= 5:
+                    nearby_entities.append(f"{e.name}({e.type}) at ({e.x},{e.y})")
+            
+            nearby_info = "\n".join(nearby_entities) if nearby_entities else "附近无其他实体"
+            
+            # 获取实体属性
+            entity_props = entity.get("properties", {})
+            entity_skills = entity.get("skills", [])
+            gender = entity.get("gender", "")
+            
+            props_str = ""
+            if entity_props:
+                props_str = f", 属性: {entity_props}"
+            skills_str = f", 技能: {', '.join(entity_skills)}" if entity_skills else ""
+            gender_str = f", 性别: {gender}" if gender else ""
+            
+            prompt = f"""你是实体「{entity_name}」的AI控制器。
+
+【实体信息】
+- 名称: {entity_name}
+- 类型: {entity_type}
+- 位置: ({entity_x}, {entity_y})
+- 行为: {entity_behavior}{props_str}{skills_str}{gender_str}
+
+【周围地形】
+{terrain_info}
+
+【附近实体】
+{nearby_info}
+
+【可用技能】
+{self._get_skill_prompt()}
+
+请决定「{entity_name}」这个时间单位要做什么。
+重要：必须返回纯JSON格式，不要有markdown代码块！
+格式示例：
+{{"actions": [{{"skill": "move_entity", "params": {{"entity_id": "{entity_id}", "x": 0, "y": 1}}}}]}}
+{{"actions": []}}"""
+
+            system_prompt = "你是一个游戏实体的AI控制器，控制实体的行为和决策。"
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+            
+            print(f"[AI] {entity_name} 发送LLM请求...", flush=True)
+            response = self.llm.chat(messages)
+            print(f"[AI] {entity_name} 收到LLM响应", flush=True)
+            
+            if "error" in response:
+                return
+            
+            content = response.get("message", {}).get("content", "")
+            
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    actions = data.get("actions", data.get("operations", []))
+                    
+                    if not isinstance(actions, list):
+                        actions = []
+                    
+                    for action in actions:
+                        if not isinstance(action, dict):
+                            continue
+                        skill_name = action.get("skill", action.get("type", ""))
+                        params = action.get("params", action.get("parameter", {}))
+                        if isinstance(params, str):
+                            params = {}
+                        if skill_name:
+                            self._execute_skill({"skill": skill_name, "params": params})
+                    
+                except json.JSONDecodeError:
+                    pass
+                except Exception as e:
+                    print(f"[AI] {entity_name} 执行动作失败: {e}", flush=True)
+                    
+        except Exception as e:
+            print(f"[AI] {entity.get('name', '未知')} entity_tick错误: {e}", flush=True)

@@ -374,7 +374,8 @@ class WorldManager:
                     key = f"{x},{y}"
                     if key not in terrain_data:
                         terrain = self.terrain_manager.get_terrain(x, y)
-                        terrain_data[key] = terrain
+                        if terrain != "未探索":
+                            terrain_data[key] = terrain
         
         return {
             "tick": self.tick,

@@ -36,7 +36,13 @@ def execute_move(ctx: SkillContext) -> SkillResult:
     entity_id = p.get("entity_id")
     entity_name = p.get("entity_name", "")
     
-    entity = ctx.world.get_entity(entity_id) if entity_id else ctx.world.find_entity_by_name(entity_name)
+    entity = None
+    if entity_id:
+        entity = ctx.world.get_entity(entity_id)
+        if not entity:
+            entity = ctx.world.find_entity_by_name(entity_id)
+    if not entity and entity_name:
+        entity = ctx.world.find_entity_by_name(entity_name)
     
     if not entity:
         return SkillResult(
@@ -62,7 +68,13 @@ def execute_delete(ctx: SkillContext) -> SkillResult:
     entity_id = p.get("entity_id")
     entity_name = p.get("entity_name", "")
     
-    entity = ctx.world.get_entity(entity_id) if entity_id else ctx.world.find_entity_by_name(entity_name)
+    entity = None
+    if entity_id:
+        entity = ctx.world.get_entity(entity_id)
+        if not entity:
+            entity = ctx.world.find_entity_by_name(entity_id)
+    if not entity and entity_name:
+        entity = ctx.world.find_entity_by_name(entity_name)
     
     if not entity:
         return SkillResult(

@@ -85,8 +85,6 @@ def tick_loop():
             print(f"Tick error: {e}", flush=True)
             import traceback
             traceback.print_exc()
-        import time
-        time.sleep(config.get("tick_interval", 5))
 
 import threading
 tick_thread = threading.Thread(target=tick_loop, daemon=True)
