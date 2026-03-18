@@ -7,62 +7,59 @@ from .memory import Memory
 from .transcript import Transcript
 
 
-SYSTEM_PROMPT_BASE = """# 角色
-你是一个虚拟世界的管理者AI。你的任务是帮助玩家管理一个像素风格的世界。
+# Skill定义 - OpenClaw风格
+SKILLS = {
+    "create_entity": {
+        "name": "创建实体",
+        "description": "当用户提到出现、来到、创建、诞生新的生物、人物、动物、植物时使用",
+        "aliases": ["出现", "来到", "创建", "诞生", "有了", "添加", "生成"],
+        "tool": "create_entity"
+    },
+    "move_entity": {
+        "name": "移动实体",
+        "description": "当用户要求某个实体移动到某处、去向某地时使用",
+        "aliases": ["移动", "走去", "跑到", "飞向", "游到", "转向"],
+        "tool": "move_entity"
+    },
+    "set_behavior": {
+        "name": "设置行为",
+        "description": "当用户要求某个实体做什么动作或行为时使用",
+        "aliases": ["向四周探索", "休息", "觅食", "攻击", "逃跑", "跟随"],
+        "tool": "set_entity_behavior"
+    },
+    "delete_entity": {
+        "name": "删除实体",
+        "description": "当用户要求删除、消灭、移除某个实体时使用",
+        "aliases": ["删除", "消灭", "移除", "消失", "死亡"],
+        "tool": "delete_entity"
+    },
+    "add_rule": {
+        "name": "添加规则",
+        "description": "当用户添加世界规则或游戏规则时使用",
+        "aliases": ["规则", "规定", "设定"],
+        "tool": "add_rule"
+    }
+}
 
-## ⚠️ 核心规则（必须遵守）
+SYSTEM_PROMPT_BASE = """你是一个虚拟世界的管理者AI。你的任务是根据用户指令操作世界。
 
-1. **绝对不要回复解释性文字！**
-2. **绝对不要列出步骤！**
-3. **绝对不要问玩家"请提供xxx"！**
-4. **只使用工具来响应！**
+## 可用Skill（操作类型）
+""" + "\n".join([f'- {k}: {v["name"]} - {v["description"]}' for k, v in SKILLS.items()]) + """
 
-如果不确定如何做，直接使用工具尝试，不要等待玩家确认！
+## 实体类型
+- creature: 生物/人物/动物（人、小明、孙悟空、猪八戒、狼、狗等）
+- plant: 植物（树、花、草、森林等）
+- building: 建筑（房屋、城堡、村庄等）
+- resource: 资源（矿、金、银等）
+- water: 水体（河、湖、海等）
+- fire: 火
 
-## 世界规则
-- 世界是无限大的网格坐标系统，坐标可正可负
-- 实体类型：creature(生物), plant(植物), building(建筑), resource(资源), water(水), fire(火), land(陆地)
-
-## 可用工具
-你必须通过调用工具来响应玩家，不能用文字描述如何操作！
-
-### 工具调用格式
-当需要创建实体时，必须返回以下格式（不是文字，是工具调用）：
-```
-{"action": "create_entity", "entity_type": "creature", "entity_name": "小明", "x": 0, "y": 0}
-```
-当需要移动实体时：
-```
-{"action": "move_entity", "entity_name": "小明", "x": 5, "y": 3}
-```
-当需要设置行为时：
-```
-{"action": "set_behavior", "entity_name": "小明", "behavior": "向四周探索"}
-```
-
-## 实体类型推断规则
-根据名称自动推断类型：
-- 人/男/女/小明/小红/英雄/农夫/狼/狗/猫 → creature
-- 树/草/花/森林/农作物 → plant
-- 房/屋/村庄/城市/城堡 → building
-- 水/河/湖/海 → water
-- 矿/金/银/铁/石 → resource
-- 火 → fire
-
-## 坐标规则
-- 如果玩家没有指定坐标，默认使用 (0, 0)
-- 玩家说"在(5,3)" → 提取坐标 x=5, y=3
-
-## 行为系统
-- creature: 向四周探索、随机移动、休息、觅食、饮水
-- plant: 生长
-- fire: 蔓延、燃烧
-
-## 实体技能
-创建实体时，根据名称自主分析技能：
-- "小明" → 技能: 移动、思考
-- "狼" → 技能: 移动、捕猎
-- "树" → 技能: 生长"""
+## 重要规则
+1. 仔细分析用户输入，找出主要意图
+2. "X的死敌Y出现了" → 意图是创建Y，不是X
+3. "出现/来到/创建" → create_entity
+4. 默认坐标(0,0)，世界会找到空位放置
+5. 只返回JSON格式的分析结果！"""
 
 
 class Agent:
@@ -155,123 +152,136 @@ class Agent:
         }
     
     def _parse_command_with_llm(self, command: str) -> Optional[Dict]:
-        """让LLM分析用户指令，返回结构化JSON"""
+        """OpenClaw风格：让LLM分析用户指令，返回结构化Intent"""
         
-        prompt = f"""分析用户指令，返回结构化JSON。
+        prompt = f"""分析以下用户指令，返回JSON格式的结果：
 
-用户指令：{command}
+用户指令：「{command}」
 
-世界状态：{self.world.get_summary()}
+当前世界状态：
+{self.world.get_summary()}
 
-支持的实体类型：creature(生物), plant(植物), building(建筑), resource(资源), water(水), fire(火)
-支持的工具：create_entity, move_entity, set_entity_behavior, delete_entity, add_rule
-
-返回JSON格式：
+请分析用户的真实意图，返回JSON：
 {{
-    "action": "操作类型(create_entity/move_entity/set_behavior/delete_entity/add_rule/none)",
-    "entity_type": "实体类型(根据名称推断)",
-    "entity_name": "实体名称",
-    "x": 数字(世界坐标，默认0)",
-    "y": 数字(世界坐标，默认0)",
-    "behavior": "行为描述",
-    "description": "描述"
+    "skill": "使用的技能",
+    "entity_name": "涉及的实体名称",
+    "entity_type": "实体类型(creature/plant/building/resource/water/fire)",
+    "x": 数字坐标(默认0),
+    "y": 数字坐标(默认0),
+    "behavior": "行为描述(如向四周探索)",
+    "description": "额外描述"
 }}
 
-规则：
-- "出现/来到/创建/诞生/有了" → create_entity
-- "移动/走去/跑向" → move_entity  
-- "行为/做/行动" → set_behavior
-- 名称推断：人/男/女/孙悟空/猪八戒 → creature，树木/花草 → plant
+注意：
+- "X的死敌Y出现了" → entity_name应该是Y，不是X
+- "出现/来到/创建/诞生" → skill是create_entity
+- "移动/走去" → skill是move_entity
+- 只返回JSON，不要其他文字！"""
 
-只返回JSON，不要其他文字。"""
-
-        messages = [{"role": "user", "content": prompt}]
-        response = self.llm.chat(messages)
+        response = self.llm.chat([{"role": "user", "content": prompt}])
         
         if "error" in response:
             print(f"[AI] LLM解析失败: {response['error']}", flush=True)
             return None
         
         content = response.get("message", {}).get("content", "")
-        print(f"[AI] LLM解析: {content[:150]}...", flush=True)
+        print(f"[AI] LLM原始响应: {content[:200]}...", flush=True)
         
         import re
         json_match = re.search(r'\{[\s\S]*\}', content)
         if not json_match:
+            print(f"[AI] 无法提取JSON", flush=True)
             return None
         
         try:
-            intent_data = json.loads(json_match.group())
-            action = intent_data.get("action", "none")
-            print(f"[AI] 意图: action={action}, data={intent_data}", flush=True)
-            return intent_data
-        except:
-            print(f"[AI] JSON解析失败", flush=True)
+            intent = json.loads(json_match.group())
+            skill = intent.get("skill", "none")
+            print(f"[AI] 解析结果: skill={skill}, entity_name={intent.get('entity_name', '')}", flush=True)
+            return intent
+        except json.JSONDecodeError as e:
+            print(f"[AI] JSON解析失败: {e}", flush=True)
             return None
     
     def _build_tool_calls_from_intent(self, intent: Dict) -> List[Dict]:
-        """根据LLM解析的意图构建工具调用"""
+        """根据Intent构建Tool Calls - OpenClaw风格"""
         tool_calls = []
-        action = intent.get("action", "none")
+        skill = intent.get("skill", "none")
         
-        if action == "create_entity":
+        if skill not in SKILLS:
+            print(f"[AI] 未知的skill: {skill}", flush=True)
+            return tool_calls
+        
+        tool_name = SKILLS[skill]["tool"]
+        
+        if skill == "create_entity":
             entity_name = intent.get("entity_name", "")
-            if entity_name:
-                tool_calls.append({
-                    "function": {
-                        "name": "create_entity",
-                        "arguments": {
-                            "entity_type": intent.get("entity_type", "creature"),
-                            "name": entity_name,
-                            "x": intent.get("x", 0),
-                            "y": intent.get("y", 0),
-                            "description": intent.get("description", "")
-                        }
-                    }
-                })
-        
-        elif action == "move_entity":
-            entity = self.world.find_entity_by_name(intent.get("entity_name", ""))
-            if entity:
-                tool_calls.append({
-                    "function": {
-                        "name": "move_entity",
-                        "arguments": {
-                            "entity_id": entity.id,
-                            "x": intent.get("x", 0),
-                            "y": intent.get("y", 0)
-                        }
-                    }
-                })
-        
-        elif action == "set_behavior":
+            if not entity_name:
+                print(f"[AI] create_entity缺少entity_name", flush=True)
+                return tool_calls
+            
             tool_calls.append({
                 "function": {
-                    "name": "set_entity_behavior",
+                    "name": tool_name,
+                    "arguments": {
+                        "entity_type": intent.get("entity_type", "creature"),
+                        "name": entity_name,
+                        "x": intent.get("x", 0),
+                        "y": intent.get("y", 0),
+                        "description": intent.get("description", "")
+                    }
+                }
+            })
+            print(f"[AI] 构建ToolCall: create_entity - {entity_name}", flush=True)
+        
+        elif skill == "move_entity":
+            entity = self.world.find_entity_by_name(intent.get("entity_name", ""))
+            if not entity:
+                print(f"[AI] 找不到实体: {intent.get('entity_name', '')}", flush=True)
+                return tool_calls
+            
+            tool_calls.append({
+                "function": {
+                    "name": tool_name,
+                    "arguments": {
+                        "entity_id": entity.id,
+                        "x": intent.get("x", 0),
+                        "y": intent.get("y", 0)
+                    }
+                }
+            })
+            print(f"[AI] 构建ToolCall: move_entity - {entity.name}", flush=True)
+        
+        elif skill == "set_behavior":
+            tool_calls.append({
+                "function": {
+                    "name": tool_name,
                     "arguments": {
                         "entity_name": intent.get("entity_name", ""),
                         "behavior": intent.get("behavior", "")
                     }
                 }
             })
+            print(f"[AI] 构建ToolCall: set_behavior", flush=True)
         
-        elif action == "delete_entity":
+        elif skill == "delete_entity":
             entity = self.world.find_entity_by_name(intent.get("entity_name", ""))
             if entity:
                 tool_calls.append({
                     "function": {
-                        "name": "delete_entity",
+                        "name": tool_name,
                         "arguments": {"entity_id": entity.id}
                     }
                 })
+                print(f"[AI] 构建ToolCall: delete_entity - {entity.name}", flush=True)
         
-        elif action == "add_rule":
+        elif skill == "add_rule":
             tool_calls.append({
                 "function": {
-                    "name": "add_rule",
+                    "name": tool_name,
                     "arguments": {"rule": intent.get("description", "")}
                 }
             })
+            print(f"[AI] 构建ToolCall: add_rule", flush=True)
         
         return tool_calls
     
