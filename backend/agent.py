@@ -130,181 +130,206 @@ class Agent:
         
     def execute_command(self, command: str) -> Dict[str, Any]:
         world_state = self.world.get_state()
-        world_summary = self._build_world_summary(world_state)
         
-        # 记录用户消息
         if self.transcript:
             self.transcript.add_user_message(command)
             self.transcript.add_world_state(world_state)
         
-        # 步骤1：让 LLM 分析用户意图
-        tool_calls = self._parse_command_intent(command)
-        if tool_calls:
-            print(f"[AI] 直接解析命令创建实体: {tool_calls[0]['function']['arguments']}", flush=True)
-            result = self._execute_tool_calls(tool_calls)
-            if self.transcript:
-                self.transcript.save()
-            return result
+        print(f"[AI] 收到指令: {command[:50]}...", flush=True)
         
-        messages = [
-            {"role": "system", "content": self._build_system_prompt()},
-            {"role": "system", "content": f"当前世界状态:\n{world_summary}"},
-            {"role": "user", "content": command}
-        ] + self.conversation_history[-5:]
+        # 让LLM分析用户意图
+        intent = self._parse_command_with_llm(command)
         
-        print(f"[AI] 收到指令: {command[:30]}...", flush=True)
+        if intent:
+            tool_calls = self._build_tool_calls_from_intent(intent)
+            if tool_calls:
+                result = self._execute_tool_calls(tool_calls)
+                if self.transcript:
+                    self.transcript.save()
+                return result
         
-        response = self.llm.chat(messages, TOOLS)
+        return {
+            "success": False,
+            "response": "无法理解指令，请尝试更明确的表达",
+            "world_state": world_state
+        }
+    
+    def _parse_command_with_llm(self, command: str) -> Optional[Dict]:
+        """让LLM分析用户指令，返回结构化JSON"""
+        
+        prompt = f"""分析用户指令，返回结构化JSON。
+
+用户指令：{command}
+
+世界状态：{self.world.get_summary()}
+
+支持的实体类型：creature(生物), plant(植物), building(建筑), resource(资源), water(水), fire(火)
+支持的工具：create_entity, move_entity, set_entity_behavior, delete_entity, add_rule
+
+返回JSON格式：
+{{
+    "action": "操作类型(create_entity/move_entity/set_behavior/delete_entity/add_rule/none)",
+    "entity_type": "实体类型(根据名称推断)",
+    "entity_name": "实体名称",
+    "x": 数字(世界坐标，默认0)",
+    "y": 数字(世界坐标，默认0)",
+    "behavior": "行为描述",
+    "description": "描述"
+}}
+
+规则：
+- "出现/来到/创建/诞生/有了" → create_entity
+- "移动/走去/跑向" → move_entity  
+- "行为/做/行动" → set_behavior
+- 名称推断：人/男/女/孙悟空/猪八戒 → creature，树木/花草 → plant
+
+只返回JSON，不要其他文字。"""
+
+        messages = [{"role": "user", "content": prompt}]
+        response = self.llm.chat(messages)
         
         if "error" in response:
-            print(f"[错误] {response['error']}", flush=True)
-            return {"success": False, "error": response["error"]}
+            print(f"[AI] LLM解析失败: {response['error']}", flush=True)
+            return None
+        
+        content = response.get("message", {}).get("content", "")
+        print(f"[AI] LLM解析: {content[:150]}...", flush=True)
+        
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if not json_match:
+            return None
         
         try:
-            message = response.get("message", {})
-            content = message.get("content", "")
-            tool_calls = message.get("tool_calls", [])
-            
-            # 调试：打印原始响应信息
-            print(f"[AI] LLM响应: content长度={len(content)}, tool_calls数量={len(tool_calls)}", flush=True)
-            
-            # 如果没有tool_calls但有content，尝试解析JSON内容
-            if not tool_calls and content:
-                try:
-                    import json
-                    parsed = json.loads(content)
-                    if isinstance(parsed, list):
-                        for item in parsed:
-                            if "tool" in item:
-                                tool_calls.append({
-                                    "function": {
-                                        "name": item["tool"],
-                                        "arguments": item.get("args", {})
-                                    }
-                                })
-                            elif "entity_type" in item or "name" in item:
-                                tool_calls.append({
-                                    "function": {
-                                        "name": "create_entity",
-                                        "arguments": item
-                                    }
-                                })
-                    print(f"[AI] 从content解析出tool_calls: {len(tool_calls)}", flush=True)
-                except:
-                    pass
-            
-            # 如果还是没有tool_calls，尝试从自然语言中提取创建实体的意图
-            if not tool_calls and content:
-                import re
-                
-                # 从原始用户命令中提取
-                command = messages[-1].get("content", "") if messages else ""
-                
-                found_entity = None
-                
-                # 模式1: "X的死敌/敌人,Y出现了" - Y是新实体
-                match = re.search(r'[的之]?(?:死敌|敌人|朋友|伙伴)[，,]([^，。,\s]{1,6})(?:出现|来到|诞生|进入)', command)
-                if match:
-                    found_entity = {"name": match.group(1), "type": "creature"}
-                
-                # 模式2: "出现了X" "诞生了X" - X是新实体
-                if not found_entity:
-                    match = re.search(r'(?:出现|诞生|创建|添加|有了|发现)(?:一个?)?([^，。,\s]{1,6})', command)
-                    if match:
-                        name = match.group(1)
-                        # 排除一些无关词汇
-                        if name and len(name) >= 2 and not name.startswith("世界"):
-                            found_entity = {"name": name, "type": "creature"}
-                
-                # 模式3: "X来到/出现这个世界" - X是新实体
-                if not found_entity:
-                    match = re.search(r'([^，。,\s]{1,6})(?:来到|出现|进入|诞生)(?:这个)?世界', command)
-                    if match:
-                        found_entity = {"name": match.group(1), "type": "creature"}
-                
-                # 模式4: "有个X叫Y" - Y是新实体
-                if not found_entity:
-                    match = re.search(r'(?:有|发现)(?:一只?|个)?(?:叫|名叫)([^，。,\s]{1,6})', command)
-                    if match:
-                        found_entity = {"name": match.group(1), "type": "creature"}
-                
-                # 模式5: "X是Y" - X是新实体
-                if not found_entity:
-                    match = re.search(r'^([^，。,\s]{1,6})(?:是|叫|名为)(?:一个?|个?)([男女雄雌人人类生物])', command)
-                    if match:
-                        found_entity = {"name": match.group(1), "type": "creature"}
-                
-                if found_entity:
-                    tool_calls.append({
-                        "function": {
-                            "name": "create_entity",
-                            "arguments": {
-                                "entity_type": found_entity["type"],
-                                "name": found_entity["name"],
-                                "x": 0,
-                                "y": 0
-                            }
+            intent_data = json.loads(json_match.group())
+            action = intent_data.get("action", "none")
+            print(f"[AI] 意图: action={action}, data={intent_data}", flush=True)
+            return intent_data
+        except:
+            print(f"[AI] JSON解析失败", flush=True)
+            return None
+    
+    def _build_tool_calls_from_intent(self, intent: Dict) -> List[Dict]:
+        """根据LLM解析的意图构建工具调用"""
+        tool_calls = []
+        action = intent.get("action", "none")
+        
+        if action == "create_entity":
+            entity_name = intent.get("entity_name", "")
+            if entity_name:
+                tool_calls.append({
+                    "function": {
+                        "name": "create_entity",
+                        "arguments": {
+                            "entity_type": intent.get("entity_type", "creature"),
+                            "name": entity_name,
+                            "x": intent.get("x", 0),
+                            "y": intent.get("y", 0),
+                            "description": intent.get("description", "")
                         }
-                    })
-                    print(f"[AI] 从命令推断创建实体: {found_entity['name']} ({found_entity['type']})", flush=True)
-            
-            results = []
-            for tool_call in tool_calls:
-                func = tool_call.get("function", {})
-                tool_name = func.get("name")
-                tool_args = func.get("arguments", {})
-                
-                if isinstance(tool_args, str):
-                    import json
-                    tool_args = json.loads(tool_args)
-                
-                result = self.executor.execute(tool_name, tool_args)
-                results.append({
-                    "tool": tool_name,
-                    "args": tool_args,
-                    "result": result
+                    }
                 })
-                
-                self.conversation_history.append({
-                    "role": "assistant",
-                    "content": f"调用工具 {tool_name}: {result.get('result', result.get('error', ''))}"
+        
+        elif action == "move_entity":
+            entity = self.world.find_entity_by_name(intent.get("entity_name", ""))
+            if entity:
+                tool_calls.append({
+                    "function": {
+                        "name": "move_entity",
+                        "arguments": {
+                            "entity_id": entity.id,
+                            "x": intent.get("x", 0),
+                            "y": intent.get("y", 0)
+                        }
+                    }
                 })
+        
+        elif action == "set_behavior":
+            tool_calls.append({
+                "function": {
+                    "name": "set_entity_behavior",
+                    "arguments": {
+                        "entity_name": intent.get("entity_name", ""),
+                        "behavior": intent.get("behavior", "")
+                    }
+                }
+            })
+        
+        elif action == "delete_entity":
+            entity = self.world.find_entity_by_name(intent.get("entity_name", ""))
+            if entity:
+                tool_calls.append({
+                    "function": {
+                        "name": "delete_entity",
+                        "arguments": {"entity_id": entity.id}
+                    }
+                })
+        
+        elif action == "add_rule":
+            tool_calls.append({
+                "function": {
+                    "name": "add_rule",
+                    "arguments": {"rule": intent.get("description", "")}
+                }
+            })
+        
+        return tool_calls
+    
+    def _execute_tool_calls(self, tool_calls: List[Dict]) -> Dict[str, Any]:
+        """执行工具调用"""
+        results = []
+        
+        for tool_call in tool_calls:
+            func = tool_call.get("function", {})
+            tool_name = func.get("name")
+            tool_args = func.get("arguments", {})
             
-            print(f"[AI] 执行了 {len(results)} 个动作", flush=True)
-            for r in results:
-                print(f"  - {r['tool']}: {r['result'].get('name', r['result'].get('id', 'OK'))}", flush=True)
+            if isinstance(tool_args, str):
+                tool_args = json.loads(tool_args)
             
-            for r in results:
-                if r["tool"] == "create_entity" and r["result"].get("success"):
-                    entity_data = r["result"].get("result", {})
-                    entity_id = entity_data.get("id")
-                    entity_type = entity_data.get("type")
-                    entity_name = entity_data.get("name", "")
-                    if entity_id:
-                        skills = self._analyze_skills(entity_type, entity_name)
-                        if skills:
-                            for skill in skills:
-                                self.world.entities[entity_id].add_skill(skill)
-                            print(f"  [技能] {entity_name} 获得技能: {skills}", flush=True)
-                        
-                        # 生物创建后探索周围地形
-                        self._explore_surrounding_terrain(entity_id)
-                
-                elif r["tool"] == "move_entity" and r["result"].get("success"):
-                    entity_data = r["result"].get("result", {})
-                    entity_id = entity_data.get("id")
-                    if entity_id:
-                        self._explore_surrounding_terrain(entity_id)
-
-            return {
-                "success": True,
-                "response": content,
-                "tool_results": results,
-                "world_state": self.world.get_state()
-            }
+            result = self.executor.execute(tool_name, tool_args)
+            results.append({
+                "tool": tool_name,
+                "args": tool_args,
+                "result": result
+            })
             
-        except Exception as e:
-            return {"success": False, "error": str(e), "raw_response": response}
+            if self.transcript:
+                self.transcript.add_tool_call(tool_name, tool_args, result)
+            
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": f"调用工具 {tool_name}: {result.get('result', result.get('error', ''))}"
+            })
+            
+            if tool_name == "create_entity" and result.get("success"):
+                entity_data = result.get("result", {})
+                entity_id = entity_data.get("id")
+                entity_type = entity_data.get("type")
+                entity_name = entity_data.get("name", "")
+                if entity_id:
+                    skills = self._analyze_skills(entity_type, entity_name)
+                    if skills:
+                        for skill in skills:
+                            self.world.entities[entity_id].add_skill(skill)
+                        print(f"  [技能] {entity_name}: {skills}", flush=True)
+                    self._explore_surrounding_terrain(entity_id)
+        
+        print(f"[AI] 执行了 {len(results)} 个动作", flush=True)
+        for r in results:
+            rd = r['result']
+            if rd.get("success"):
+                ed = rd.get("result", {})
+                print(f"  - {r['tool']}: {ed.get('name', ed.get('id', 'OK'))}", flush=True)
+            else:
+                print(f"  - {r['tool']}: 失败 - {rd.get('error', 'unknown')}", flush=True)
+        
+        return {
+            "success": True,
+            "response": f"执行了 {len(results)} 个操作",
+            "tool_results": results,
+            "world_state": self.world.get_state()
+        }
     
     def auto_tick(self) -> Dict[str, Any]:
         world_state = self.world.get_state()
@@ -427,186 +452,3 @@ class Agent:
     def reset(self):
         self.conversation_history = []
     
-    def _parse_command_intent(self, command: str) -> List[Dict]:
-        """让 LLM 分析用户意图，返回结构化数据"""
-        
-        prompt = f"""你是一个指令分析器。请分析以下用户指令，返回结构化JSON。
-
-用户指令：{command}
-
-请返回JSON格式的分析结果：
-{{
-    "action": "操作类型(create_entity/move_entity/set_behavior/delete_entity/add_rule/none)",
-    "entity_type": "实体类型(creature/plant/building/resource/water/fire)",
-    "entity_name": "实体名称",
-    "x": 数字坐标X,
-    "y": 数字坐标Y,
-    "behavior": "行为描述",
-    "description": "描述"
-}}
-
-重要规则：
-- 如果用户提到"来到这个世界"、"出现在"、"创造"、"创建" → action必须是"create_entity"
-- "xxx来到这个世界" = 创建名为xxx的实体
-- 坐标默认为0,0
-- entity_type根据名称推断：人/男/女/小明/大美丽/狼/狗 → creature，树/草/花 → plant
-
-只返回JSON！"""
-
-        messages = [{"role": "user", "content": prompt}]
-        response = self.llm.chat(messages)
-        
-        if "error" in response:
-            print(f"[AI] 意图分析失败: {response['error']}", flush=True)
-            return []
-        
-        content = response.get("message", {}).get("content", "")
-        
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if not json_match:
-            print(f"[AI] 无法解析JSON: {content[:100]}", flush=True)
-            return []
-        
-        try:
-            intent_data = json.loads(json_match.group())
-        except:
-            print(f"[AI] JSON解析失败", flush=True)
-            return []
-        
-        action = intent_data.get("action", "none")
-        print(f"[AI] 意图分析: action={action}, data={intent_data}", flush=True)
-        
-        if action != "create_entity":
-            print(f"[AI] action不是create_entity，跳过", flush=True)
-            return []
-        
-        tool_calls = []
-        
-        if action == "create_entity":
-            entity_name = intent_data.get("entity_name", "")
-            print(f"[AI] 准备创建实体: name={entity_name}", flush=True)
-            
-            if not entity_name:
-                print(f"[AI] entity_name为空，跳过", flush=True)
-                return []
-            tool_calls.append({
-                "function": {
-                    "name": "create_entity",
-                    "arguments": {
-                        "entity_type": intent_data.get("entity_type", "creature"),
-                        "name": intent_data.get("entity_name", ""),
-                        "x": intent_data.get("x", 0),
-                        "y": intent_data.get("y", 0),
-                        "description": intent_data.get("description", "")
-                    }
-                }
-            })
-        
-        elif action == "move_entity":
-            entity = self.world.find_entity_by_name(intent_data.get("entity_name", ""))
-            if entity:
-                tool_calls.append({
-                    "function": {
-                        "name": "move_entity",
-                        "arguments": {
-                            "entity_id": entity.id,
-                            "x": intent_data.get("x", 0),
-                            "y": intent_data.get("y", 0)
-                        }
-                    }
-                })
-        
-        elif action == "set_behavior":
-            tool_calls.append({
-                "function": {
-                    "name": "set_entity_behavior",
-                    "arguments": {
-                        "entity_name": intent_data.get("entity_name", ""),
-                        "behavior": intent_data.get("behavior", "")
-                    }
-                }
-            })
-        
-        elif action == "delete_entity":
-            entity = self.world.find_entity_by_name(intent_data.get("entity_name", ""))
-            if entity:
-                tool_calls.append({
-                    "function": {
-                        "name": "delete_entity",
-                        "arguments": {
-                            "entity_id": entity.id
-                        }
-                    }
-                })
-        
-        elif action == "add_rule":
-            tool_calls.append({
-                "function": {
-                    "name": "add_rule",
-                    "arguments": {
-                        "rule": intent_data.get("description", "")
-                    }
-                }
-            })
-        
-        return tool_calls
-    
-    def _execute_tool_calls(self, tool_calls: List[Dict]) -> Dict[str, Any]:
-        """执行工具调用并返回结果"""
-        results = []
-        
-        for tool_call in tool_calls:
-            func = tool_call.get("function", {})
-            tool_name = func.get("name")
-            tool_args = func.get("arguments", {})
-            
-            if isinstance(tool_args, str):
-                import json
-                tool_args = json.loads(tool_args)
-            
-            result = self.executor.execute(tool_name, tool_args)
-            results.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "result": result
-            })
-            
-            # 记录到 transcript
-            if self.transcript:
-                self.transcript.add_tool_call(tool_name, tool_args, result)
-            
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": f"调用工具 {tool_name}: {result.get('result', result.get('error', ''))}"
-            })
-            
-            # 创建实体后自动分析技能
-            if tool_name == "create_entity" and result.get("success"):
-                entity_data = result.get("result", {})
-                entity_id = entity_data.get("id")
-                entity_type = entity_data.get("type")
-                entity_name = entity_data.get("name", "")
-                if entity_id:
-                    skills = self._analyze_skills(entity_type, entity_name)
-                    if skills:
-                        for skill in skills:
-                            self.world.entities[entity_id].add_skill(skill)
-                        print(f"  [技能] {entity_name} 获得技能: {skills}", flush=True)
-                    self._explore_surrounding_terrain(entity_id)
-        
-        print(f"[AI] 执行了 {len(results)} 个动作", flush=True)
-        for r in results:
-            result_data = r['result']
-            if result_data.get("success"):
-                entity_data = result_data.get("result", {})
-                print(f"  - {r['tool']}: {entity_data.get('name', entity_data.get('id', 'OK'))}", flush=True)
-            else:
-                print(f"  - {r['tool']}: 失败 - {result_data.get('error', 'unknown')}", flush=True)
-        
-        return {
-            "success": True,
-            "response": f"创建了 {results[0]['args'].get('name', '实体')}",
-            "tool_results": results,
-            "world_state": self.world.get_state()
-        }
