@@ -335,14 +335,15 @@ class Agent:
 返回JSON（可以是多个skill调用）：
 {{
     "actions": [
-        {{"skill": "skill名称", "params": {{}}}},
-        ...
+        {{"skill": "skill名称", "params": {{}}}}
     ]
 }}
 
 如果没有需要执行的操作，返回空数组：{{"actions": []}}"""
 
+            print(f"[AI] Tick {tick} 发送LLM请求...", flush=True)
             response = self.llm.chat([{"role": "user", "content": prompt}])
+            print(f"[AI] Tick {tick} 收到LLM响应", flush=True)
             
             if "error" in response:
                 return {"success": True, "tick": tick, "world_state": self.world.get_state()}
