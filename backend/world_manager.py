@@ -88,7 +88,7 @@ class WorldManager:
         
         # 检查位置是否被占用，如果被占用则寻找附近空位
         original_x, original_y = x, y
-        max_search = 10  # 最多搜索10格
+        max_search = 20  # 最多搜索20格
         
         while max_search > 0:
             found = False
@@ -100,15 +100,10 @@ class WorldManager:
             if not found:
                 break  # 找到空位
             
-            # 尝试下一个位置（顺时针螺旋搜索）
-            if x == original_x and y == original_y:
-                x += 1
-            elif x >= original_x and y < original_y + (x - original_x):
-                y += 1
-            elif x > original_x and y >= original_y + (x - original_x):
-                x -= 1
-            else:
-                y -= 1
+            # 随机偏移找新位置
+            import random
+            x = original_x + random.randint(-10, 10)
+            y = original_y + random.randint(-10, 10)
             max_search -= 1
         
         if max_search == 0:
